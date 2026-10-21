@@ -21,6 +21,7 @@ SOURCES_C := \
     drivers/spi_nor_ro.c \
     drivers/sdmmc0.c \
     storage/fat.c \
+    loader/custom.c \
     ui/font8x8.c \
     ui/console.c \
     main.c

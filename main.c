@@ -1,8 +1,7 @@
 #include <stdint.h>
 #include "display.h"
 #include "console.h"
-#include "sdmmc0.h"
-#include "fat.h"
+#include "custom.h"
 
 #define BLACK  0x0000U
 #define WHITE  0xFFFFU
@@ -27,14 +26,6 @@ static void hex32(uint32_t v)
     console_puts(b);
 }
 
-static uint32_t le32(const uint8_t *p)
-{
-    return (uint32_t)p[0]
-         | ((uint32_t)p[1] << 8)
-         | ((uint32_t)p[2] << 16)
-         | ((uint32_t)p[3] << 24);
-}
-
 static void value_line(const char *name, uint32_t value, uint16_t color)
 {
     console_set_color(WHITE);
@@ -45,110 +36,58 @@ static void value_line(const char *name, uint32_t value, uint16_t color)
     console_putln("");
 }
 
-static void bytes_line(const char *name, const uint8_t *data, unsigned count)
-{
-    unsigned i;
-
-    console_set_color(WHITE);
-    console_puts(name);
-    console_puts(" ");
-    console_set_color(CYAN);
-
-    for (i = 0U; i < count; i++) {
-        char b[3] = {hexn(data[i] >> 4), hexn(data[i] & 15U), 0};
-        console_puts(b);
-        if (i + 1U != count)
-            console_puts(" ");
-    }
-    console_putln("");
-}
-
 int main(void)
 {
-    static uint32_t file_words[FAT_SECTOR_SIZE / 4U];
-    uint8_t *file_sector = (uint8_t *)file_words;
-    static const char hello_name[11] = {
-        'H','E','L','L','O',' ',' ',' ','B','I','N'
-    };
-    sdmmc0_info_t sd;
-    fat_volume_t volume;
-    fat_file_t hello;
-    int sd_result;
-    int mount_result = -1;
-    int find_result = -1;
-    int read_result = -1;
+    custom_app_t app;
+    int probe_result;
+    int load_result = LOADER_ERR_NOT_LOADED;
 
     display_init();
     console_init(WHITE, BLACK, 1U);
     console_set_color(CYAN);
-    console_putln("DPOS350P FAT16/FAT32 LOOKUP TEST");
+    console_putln("DPOS350P CUSTOM LOADER TEST");
     console_set_color(WHITE);
-    console_putln("Looking for HELLO.BIN in root directory");
+    console_putln("Target file: DPOSAPP.BIN");
+    console_putln("Jump is intentionally disabled");
     console_present();
 
-    sd_result = sdmmc0_init(&sd);
-    if (!sd_result)
-        mount_result = fat_mount_first(&volume);
-    if (!mount_result)
-        find_result = fat_find_root(&volume, hello_name, &hello);
-    if (!find_result)
-        read_result = fat_read_file_sector(&volume, &hello, 0U,
-                                           file_sector);
+    probe_result = custom_app_probe(&app);
+    if (!probe_result)
+        load_result = custom_app_load(&app);
 
     console_clear();
     console_set_color(CYAN);
-    console_putln("DPOS350P FAT16/FAT32 LOOKUP TEST");
+    console_putln("DPOS350P CUSTOM LOADER TEST");
     console_putln("");
 
-    console_status("SDC0 INIT ........", sd_result ? "FAIL" : "OK",
-                   sd_result ? RED : GREEN);
-    console_status("FAT MOUNT ........", mount_result ? "FAIL" : "OK",
-                   mount_result ? RED : GREEN);
-    console_status("FIND HELLO.BIN ...", find_result ? "FAIL" : "OK",
-                   find_result ? RED : GREEN);
-    console_status("READ FILE SECTOR .", read_result ? "FAIL" : "OK",
-                   read_result ? RED : GREEN);
+    console_status("PROBE DPOSAPP.BIN .",
+                   probe_result ? "FAIL" : "OK",
+                   probe_result ? RED : GREEN);
+    console_status("LOAD TO 40000000 .",
+                   load_result ? "FAIL" : "OK",
+                   load_result ? RED : GREEN);
 
-    value_line("SD ERROR ...........", (uint32_t)sd_result,
-               sd_result ? RED : CYAN);
-    value_line("MOUNT ERROR ........", (uint32_t)mount_result,
-               mount_result ? RED : CYAN);
-    value_line("FIND ERROR .........", (uint32_t)find_result,
-               find_result ? RED : CYAN);
-    value_line("READ ERROR .........", (uint32_t)read_result,
-               read_result ? RED : CYAN);
+    value_line("PROBE ERROR ........", (uint32_t)probe_result,
+               probe_result ? RED : CYAN);
+    value_line("LOAD ERROR .........", (uint32_t)load_result,
+               load_result ? RED : CYAN);
 
-    if (!mount_result) {
+    if (!probe_result) {
         console_putln("");
-        value_line("FAT TYPE ...........", volume.fat_type, GREEN);
-        value_line("PARTITION TYPE .....", volume.partition_type, CYAN);
-        value_line("PARTITION LBA ......", volume.partition_lba, CYAN);
-        value_line("FAT BEGIN LBA ......", volume.fat_begin_lba, CYAN);
-        value_line("ROOT DIR LBA .......", volume.root_dir_lba, CYAN);
-        value_line("DATA BEGIN LBA .....", volume.data_begin_lba, CYAN);
-        value_line("SECTORS/CLUSTER ....", volume.sectors_per_cluster, CYAN);
+        value_line("FAT TYPE ...........", app.volume.fat_type, CYAN);
+        value_line("FILE CLUSTER .......", app.file.first_cluster, CYAN);
+        value_line("FILE SIZE ..........", app.file.size, CYAN);
+        value_line("LOAD ADDRESS .......", app.image.load_address, CYAN);
+        value_line("ENTRY ADDRESS ......", app.image.entry_address, CYAN);
+        value_line("SECTORS TO LOAD ....", app.sectors_to_load, CYAN);
     }
 
-    if (!find_result) {
+    if (!load_result) {
         console_putln("");
-        value_line("FILE CLUSTER .......", hello.first_cluster, CYAN);
-        value_line("FILE FIRST LBA .....", hello.first_sector_lba, CYAN);
-        value_line("FILE SIZE ..........", hello.size, CYAN);
-    }
-
-    if (!read_result) {
-        console_putln("");
-        bytes_line("FIRST 16 BYTES .....", file_sector, 16U);
-        value_line("FIRST ARM WORD .....", le32(file_sector), GREEN);
-
-        console_status("EXPECTED SIZE .....",
-                       hello.size == 3492U ? "3492" : "DIFF",
-                       hello.size == 3492U ? GREEN : YELLOW);
-        console_status("HELLO SIGNATURE ...",
-                       le32(file_sector) == 0xE59FD08CU
-                           ? "MATCH" : "DIFF",
-                       le32(file_sector) == 0xE59FD08CU
-                           ? GREEN : RED);
+        value_line("BYTES LOADED .......", app.image.bytes_loaded, GREEN);
+        value_line("FIRST ARM WORD .....", app.image.first_word, GREEN);
+        console_status("IMAGE VERIFY ......", "OK", GREEN);
+        console_status("JUMP ..............", "DISABLED", YELLOW);
     }
 
     console_present();
