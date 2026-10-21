@@ -81,8 +81,8 @@ dpos-boot/
     display.h
     gt911.c
     gt911.h
-    spinor.c
-    spinor.h
+    spi_nor_ro.c
+    spi_nor_ro.h
     sdc2.c
     sdc2.h
 

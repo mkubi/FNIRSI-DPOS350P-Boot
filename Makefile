@@ -13,7 +13,17 @@ CFLAGS := -O2 -mcpu=cortex-a7 -marm -mno-unaligned-access \
           -fno-unwind-tables -fno-asynchronous-unwind-tables \
           -nostdlib -Wall -Wextra $(INCLUDES)
 
-SOURCES_C := arch/r11/cache.c drivers/gpio.c drivers/display.c ui/font8x8.c ui/console.c main.c drivers/spi0.c drivers/spi_nor_ro.c
+SOURCES_C := \
+    arch/r11/cache.c \
+    drivers/gpio.c \
+    drivers/display.c \
+    drivers/spi0.c \
+    drivers/spi_nor_ro.c \
+    drivers/sdmmc0.c \
+    storage/fat.c \
+    ui/font8x8.c \
+    ui/console.c \
+    main.c
 SOURCES_S := arch/r11/start.S
 OBJECTS := $(patsubst %.c,$(BUILD)/%.o,$(SOURCES_C)) $(patsubst %.S,$(BUILD)/%.o,$(SOURCES_S))
 .PHONY: all clean check

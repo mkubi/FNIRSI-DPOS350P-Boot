@@ -1,6 +1,7 @@
 #include "original.h"
 #include "image.h"
-#include "spinor.h"
+/* Legacy implementation, not currently built. */
+/* #include "spinor.h" */
 #include "cache.h"
 #include "board/dpos350p/memory_map.h"
 

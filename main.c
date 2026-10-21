@@ -1,7 +1,8 @@
 #include <stdint.h>
 #include "display.h"
 #include "console.h"
-#include "spi_nor_ro.h"
+#include "sdmmc0.h"
+#include "fat.h"
 
 #define BLACK  0x0000U
 #define WHITE  0xFFFFU
@@ -10,77 +11,146 @@
 #define YELLOW 0xFFE0U
 #define CYAN   0x07FFU
 
-#define EXE_HEADER_OFFSET  0x000A8000U
-#define EXE_HEADER_SIZE    0x00000020U
-#define EXE_TOTAL_SIZE     0x00095800U
-#define EXE_PAYLOAD_OFFSET (EXE_HEADER_OFFSET + EXE_HEADER_SIZE)
-#define EXE_PAYLOAD_SIZE   (EXE_TOTAL_SIZE - EXE_HEADER_SIZE)
-#define EXE_LOAD_ADDRESS   0x40000000U
-#define EXE_LOAD_PTR       ((uint8_t *)EXE_LOAD_ADDRESS)
-
-static char hexn(uint8_t v){return v<10U?(char)('0'+v):(char)('A'+v-10U);}
-static void hexbyte(uint8_t v){char s[3]={hexn(v>>4),hexn(v&15U),0};console_puts(s);}
-static uint32_t le32(const uint8_t *p){return (uint32_t)p[0]|((uint32_t)p[1]<<8)|((uint32_t)p[2]<<16)|((uint32_t)p[3]<<24);}
-static int header_ok(const uint8_t *p){
- return p[4]=='e'&&p[5]=='G'&&p[6]=='O'&&p[7]=='N'&&
-        p[8]=='.'&&p[9]=='E'&&p[10]=='X'&&p[11]=='E'&&
-        le32(p+16)==EXE_TOTAL_SIZE;
-}
-static void header(void){
- console_set_color(CYAN);console_putln("FNIRSI DPOS350P BOOTLOADER");
- console_set_color(WHITE);console_putln("------------------------");
- console_status("DISPLAY ........", "OK", GREEN);
- console_status("FRAMEBUFFER .....", "OK", GREEN);
- console_status("FONT ............", "OK", GREEN);
-}
-
-__attribute__((noinline))
-static void call_exe_blx(uint32_t entry)
+static char hexn(uint8_t v)
 {
-    /* Match the original SPL handoff: BLX entry. If it returns, caller loops. */
-    __asm__ volatile("blx %0" : : "r"(entry) : "lr", "memory");
+    return v < 10U ? (char)('0' + v) : (char)('A' + v - 10U);
+}
+
+static void hex32(uint32_t v)
+{
+    unsigned i;
+    char b[9];
+
+    for (i = 0U; i < 8U; i++)
+        b[i] = hexn((uint8_t)((v >> (28U - 4U * i)) & 15U));
+    b[8] = 0;
+    console_puts(b);
+}
+
+static uint32_t le32(const uint8_t *p)
+{
+    return (uint32_t)p[0]
+         | ((uint32_t)p[1] << 8)
+         | ((uint32_t)p[2] << 16)
+         | ((uint32_t)p[3] << 24);
+}
+
+static void value_line(const char *name, uint32_t value, uint16_t color)
+{
+    console_set_color(WHITE);
+    console_puts(name);
+    console_puts(" ");
+    console_set_color(color);
+    hex32(value);
+    console_putln("");
+}
+
+static void bytes_line(const char *name, const uint8_t *data, unsigned count)
+{
+    unsigned i;
+
+    console_set_color(WHITE);
+    console_puts(name);
+    console_puts(" ");
+    console_set_color(CYAN);
+
+    for (i = 0U; i < count; i++) {
+        char b[3] = {hexn(data[i] >> 4), hexn(data[i] & 15U), 0};
+        console_puts(b);
+        if (i + 1U != count)
+            console_puts(" ");
+    }
+    console_putln("");
 }
 
 int main(void)
 {
- spi_nor_jedec_id_t id;
- uint8_t hdr[EXE_HEADER_SIZE];
- uint8_t verify[32];
- unsigned int i;
- int r,hr=-99,load=-99,vr=-99,match=0;
+    static uint32_t file_words[FAT_SECTOR_SIZE / 4U];
+    uint8_t *file_sector = (uint8_t *)file_words;
+    static const char hello_name[11] = {
+        'H','E','L','L','O',' ',' ',' ','B','I','N'
+    };
+    sdmmc0_info_t sd;
+    fat_volume_t volume;
+    fat_file_t hello;
+    int sd_result;
+    int mount_result = -1;
+    int find_result = -1;
+    int read_result = -1;
 
- display_init();console_init(WHITE,BLACK,2U);header();
- console_status("SPI NOR .........", "PROBING", YELLOW);
- console_status("EXE1 PAYLOAD ....", "WAIT", YELLOW);
- console_present();
+    display_init();
+    console_init(WHITE, BLACK, 1U);
+    console_set_color(CYAN);
+    console_putln("DPOS350P FAT16/FAT32 LOOKUP TEST");
+    console_set_color(WHITE);
+    console_putln("Looking for HELLO.BIN in root directory");
+    console_present();
 
- r=spi_nor_ro_init();
- if(!r)r=spi_nor_read_jedec_id(&id);
- if(!r)hr=spi_nor_read_chunked(EXE_HEADER_OFFSET,hdr,sizeof(hdr));
- if(!r&&!hr&&header_ok(hdr))load=spi_nor_read_chunked(EXE_PAYLOAD_OFFSET,EXE_LOAD_PTR,EXE_PAYLOAD_SIZE);
- if(!r&&!hr&&!load)vr=spi_nor_read_chunked(EXE_PAYLOAD_OFFSET,verify,sizeof(verify));
- if(!r&&!hr&&!load&&!vr){match=1;for(i=0U;i<32U;i++)if(verify[i]!=EXE_LOAD_PTR[i]){match=0;break;}}
+    sd_result = sdmmc0_init(&sd);
+    if (!sd_result)
+        mount_result = fat_mount_first(&volume);
+    if (!mount_result)
+        find_result = fat_find_root(&volume, hello_name, &hello);
+    if (!find_result)
+        read_result = fat_read_file_sector(&volume, &hello, 0U,
+                                           file_sector);
 
- console_clear();header();
- if(!r){
-  console_status("SPI NOR .........", "OK", GREEN);
-  console_set_color(WHITE);console_puts("JEDEC ID ........ ");
-  console_set_color(CYAN);hexbyte(id.manufacturer);console_puts(" ");hexbyte(id.memory_type);console_puts(" ");hexbyte(id.capacity);console_putln("");
- } else console_status("SPI NOR .........", "FAIL", RED);
+    console_clear();
+    console_set_color(CYAN);
+    console_putln("DPOS350P FAT16/FAT32 LOOKUP TEST");
+    console_putln("");
 
- if(!r&&!hr&&!load&&header_ok(hdr)&&match){
-  console_status("EXE1 PAYLOAD ....", "OK", GREEN);
-  console_status("HEADER/MATCH ....", "OK", GREEN);
-  console_set_color(WHITE);console_putln("NOR 018020 -> RAM 40000000");
-  console_putln("SIZE 247E0, HEADER STRIPPED");
-  console_status("BLX 40000000 ....", "NOW", YELLOW);
-  console_present();
-  call_exe_blx(EXE_LOAD_ADDRESS);
-  for(;;){}
- }
+    console_status("SDC0 INIT ........", sd_result ? "FAIL" : "OK",
+                   sd_result ? RED : GREEN);
+    console_status("FAT MOUNT ........", mount_result ? "FAIL" : "OK",
+                   mount_result ? RED : GREEN);
+    console_status("FIND HELLO.BIN ...", find_result ? "FAIL" : "OK",
+                   find_result ? RED : GREEN);
+    console_status("READ FILE SECTOR .", read_result ? "FAIL" : "OK",
+                   read_result ? RED : GREEN);
 
- console_status("EXE1 PAYLOAD ....", "FAIL", RED);
- console_status("BLX .............", "BLOCKED", RED);
- console_present();
- for(;;){}
+    value_line("SD ERROR ...........", (uint32_t)sd_result,
+               sd_result ? RED : CYAN);
+    value_line("MOUNT ERROR ........", (uint32_t)mount_result,
+               mount_result ? RED : CYAN);
+    value_line("FIND ERROR .........", (uint32_t)find_result,
+               find_result ? RED : CYAN);
+    value_line("READ ERROR .........", (uint32_t)read_result,
+               read_result ? RED : CYAN);
+
+    if (!mount_result) {
+        console_putln("");
+        value_line("FAT TYPE ...........", volume.fat_type, GREEN);
+        value_line("PARTITION TYPE .....", volume.partition_type, CYAN);
+        value_line("PARTITION LBA ......", volume.partition_lba, CYAN);
+        value_line("FAT BEGIN LBA ......", volume.fat_begin_lba, CYAN);
+        value_line("ROOT DIR LBA .......", volume.root_dir_lba, CYAN);
+        value_line("DATA BEGIN LBA .....", volume.data_begin_lba, CYAN);
+        value_line("SECTORS/CLUSTER ....", volume.sectors_per_cluster, CYAN);
+    }
+
+    if (!find_result) {
+        console_putln("");
+        value_line("FILE CLUSTER .......", hello.first_cluster, CYAN);
+        value_line("FILE FIRST LBA .....", hello.first_sector_lba, CYAN);
+        value_line("FILE SIZE ..........", hello.size, CYAN);
+    }
+
+    if (!read_result) {
+        console_putln("");
+        bytes_line("FIRST 16 BYTES .....", file_sector, 16U);
+        value_line("FIRST ARM WORD .....", le32(file_sector), GREEN);
+
+        console_status("EXPECTED SIZE .....",
+                       hello.size == 3492U ? "3492" : "DIFF",
+                       hello.size == 3492U ? GREEN : YELLOW);
+        console_status("HELLO SIGNATURE ...",
+                       le32(file_sector) == 0xE59FD08CU
+                           ? "MATCH" : "DIFF",
+                       le32(file_sector) == 0xE59FD08CU
+                           ? GREEN : RED);
+    }
+
+    console_present();
+    for (;;) {}
 }
