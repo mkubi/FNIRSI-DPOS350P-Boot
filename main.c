@@ -1,7 +1,7 @@
 #include <stdint.h>
 #include "display.h"
 #include "console.h"
-#include "custom.h"
+#include "original.h"
 #include "start.h"
 
 #define BLACK  0x0000U
@@ -10,6 +10,10 @@
 #define RED    0xF800U
 #define YELLOW 0xFFE0U
 #define CYAN   0x07FFU
+
+/* Change only this line to test the other known-good original image. */
+#define TEST_ORIGINAL_IMAGE ORIGINAL_IMAGE_EXE1_USB
+/* #define TEST_ORIGINAL_IMAGE ORIGINAL_IMAGE_EXE1_USB */
 
 static char hexn(uint8_t value)
 {
@@ -48,31 +52,36 @@ static void short_delay(void)
 
 int main(void)
 {
-    custom_app_t app;
+    original_app_t app;
     int probe_result;
     int load_result = LOADER_ERR_NOT_LOADED;
 
     display_init();
     console_init(WHITE, BLACK, 1U);
     console_set_color(CYAN);
-    console_putln("DPOS350P CUSTOM APP HANDOFF");
+    console_putln("DPOS350P ORIGINAL IMAGE TEST");
     console_set_color(WHITE);
-    console_putln("Target: DPOSAPP.BIN -> 0x40000000");
+    console_puts("Target: ");
+    console_putln(original_image_name(TEST_ORIGINAL_IMAGE));
     console_present();
 
-    probe_result = custom_app_probe(&app);
+    probe_result = original_app_probe(TEST_ORIGINAL_IMAGE, &app);
     if (!probe_result)
-        load_result = custom_app_load(&app);
+        load_result = original_app_load(&app);
 
     console_clear();
     console_set_color(CYAN);
-    console_putln("DPOS350P CUSTOM APP HANDOFF");
+    console_putln("DPOS350P ORIGINAL IMAGE TEST");
     console_putln("");
+    console_set_color(WHITE);
+    console_puts("TARGET ............. ");
+    console_set_color(CYAN);
+    console_putln(original_image_name(TEST_ORIGINAL_IMAGE));
 
-    console_status("PROBE DPOSAPP.BIN .",
+    console_status("EGON HEADER .......",
                    probe_result ? "FAIL" : "OK",
                    probe_result ? RED : GREEN);
-    console_status("LOAD TO 40000000 .",
+    console_status("PAYLOAD LOAD ......",
                    load_result ? "FAIL" : "OK",
                    load_result ? RED : GREEN);
 
@@ -89,10 +98,11 @@ int main(void)
         }
     }
 
-    value_line("FILE SIZE ..........", app.image.image_size, CYAN);
-    value_line("BYTES LOADED .......", app.image.bytes_loaded, GREEN);
+    value_line("HEADER OFFSET ......", app.header_offset, CYAN);
+    value_line("PAYLOAD OFFSET .....", app.payload_offset, CYAN);
+    value_line("TOTAL SIZE .........", app.total_size, CYAN);
+    value_line("PAYLOAD SIZE .......", app.image.image_size, CYAN);
     value_line("LOAD ADDRESS .......", app.image.load_address, CYAN);
-    value_line("ENTRY ADDRESS ......", app.image.entry_address, CYAN);
     value_line("FIRST ARM WORD .....", app.image.first_word, GREEN);
 
     if (!loader_image_ready(&app.image)) {
@@ -103,11 +113,11 @@ int main(void)
         }
     }
 
+    console_status("HEADER STRIPPED ...", "YES", GREEN);
     console_status("IMAGE READY .......", "OK", GREEN);
     console_status("HANDOFF ...........", "STARTING", YELLOW);
     console_present();
 
-    /* Keep the final checkpoint visible briefly before DPOSAPP takes over. */
     short_delay();
     loader_start_image(&app.image);
 }

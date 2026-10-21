@@ -11,13 +11,20 @@ typedef enum {
 
 typedef enum {
     LOADER_OK = 0,
+
     LOADER_ERR_ARGUMENT = -1,
     LOADER_ERR_NOT_FOUND = -2,
     LOADER_ERR_BAD_SIZE = -3,
     LOADER_ERR_READ = -4,
     LOADER_ERR_ADDRESS_RANGE = -5,
     LOADER_ERR_VERIFY = -6,
-    LOADER_ERR_NOT_LOADED = -7
+    LOADER_ERR_NOT_LOADED = -7,
+
+    /*
+     * The source image exists, but its format/header is not valid.
+     * Used for eGON.EXE magic or type validation failures.
+     */
+    LOADER_ERR_BAD_HEADER = -8
 } loader_result_t;
 
 typedef struct {
