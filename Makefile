@@ -21,11 +21,15 @@ SOURCES_C := \
     drivers/spi_nor_ro.c \
     drivers/sdmmc0.c \
     storage/fat.c \
+    loader/start.c \
     loader/custom.c \
     ui/font8x8.c \
     ui/console.c \
     main.c
-SOURCES_S := arch/r11/start.S
+SOURCES_S := \
+    arch/r11/start.S \
+    loader/jump.S
+
 OBJECTS := $(patsubst %.c,$(BUILD)/%.o,$(SOURCES_C)) $(patsubst %.S,$(BUILD)/%.o,$(SOURCES_S))
 .PHONY: all clean check
 all: check $(TARGET).bin $(TARGET).lst

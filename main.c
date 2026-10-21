@@ -2,6 +2,7 @@
 #include "display.h"
 #include "console.h"
 #include "custom.h"
+#include "start.h"
 
 #define BLACK  0x0000U
 #define WHITE  0xFFFFU
@@ -10,20 +11,21 @@
 #define YELLOW 0xFFE0U
 #define CYAN   0x07FFU
 
-static char hexn(uint8_t v)
+static char hexn(uint8_t value)
 {
-    return v < 10U ? (char)('0' + v) : (char)('A' + v - 10U);
+    return value < 10U ? (char)('0' + value)
+                       : (char)('A' + value - 10U);
 }
 
-static void hex32(uint32_t v)
+static void hex32(uint32_t value)
 {
     unsigned i;
-    char b[9];
+    char text[9];
 
     for (i = 0U; i < 8U; i++)
-        b[i] = hexn((uint8_t)((v >> (28U - 4U * i)) & 15U));
-    b[8] = 0;
-    console_puts(b);
+        text[i] = hexn((uint8_t)((value >> (28U - 4U * i)) & 15U));
+    text[8] = 0;
+    console_puts(text);
 }
 
 static void value_line(const char *name, uint32_t value, uint16_t color)
@@ -36,6 +38,14 @@ static void value_line(const char *name, uint32_t value, uint16_t color)
     console_putln("");
 }
 
+static void short_delay(void)
+{
+    volatile uint32_t count;
+
+    for (count = 0U; count < 4000000U; count++)
+        __asm__ volatile ("nop");
+}
+
 int main(void)
 {
     custom_app_t app;
@@ -45,10 +55,9 @@ int main(void)
     display_init();
     console_init(WHITE, BLACK, 1U);
     console_set_color(CYAN);
-    console_putln("DPOS350P CUSTOM LOADER TEST");
+    console_putln("DPOS350P CUSTOM APP HANDOFF");
     console_set_color(WHITE);
-    console_putln("Target file: DPOSAPP.BIN");
-    console_putln("Jump is intentionally disabled");
+    console_putln("Target: DPOSAPP.BIN -> 0x40000000");
     console_present();
 
     probe_result = custom_app_probe(&app);
@@ -57,7 +66,7 @@ int main(void)
 
     console_clear();
     console_set_color(CYAN);
-    console_putln("DPOS350P CUSTOM LOADER TEST");
+    console_putln("DPOS350P CUSTOM APP HANDOFF");
     console_putln("");
 
     console_status("PROBE DPOSAPP.BIN .",
@@ -72,24 +81,33 @@ int main(void)
     value_line("LOAD ERROR .........", (uint32_t)load_result,
                load_result ? RED : CYAN);
 
-    if (!probe_result) {
-        console_putln("");
-        value_line("FAT TYPE ...........", app.volume.fat_type, CYAN);
-        value_line("FILE CLUSTER .......", app.file.first_cluster, CYAN);
-        value_line("FILE SIZE ..........", app.file.size, CYAN);
-        value_line("LOAD ADDRESS .......", app.image.load_address, CYAN);
-        value_line("ENTRY ADDRESS ......", app.image.entry_address, CYAN);
-        value_line("SECTORS TO LOAD ....", app.sectors_to_load, CYAN);
+    if (probe_result || load_result) {
+        console_status("HANDOFF ...........", "BLOCKED", RED);
+        console_present();
+        for (;;) {
+            __asm__ volatile ("wfi");
+        }
     }
 
-    if (!load_result) {
-        console_putln("");
-        value_line("BYTES LOADED .......", app.image.bytes_loaded, GREEN);
-        value_line("FIRST ARM WORD .....", app.image.first_word, GREEN);
-        console_status("IMAGE VERIFY ......", "OK", GREEN);
-        console_status("JUMP ..............", "DISABLED", YELLOW);
+    value_line("FILE SIZE ..........", app.image.image_size, CYAN);
+    value_line("BYTES LOADED .......", app.image.bytes_loaded, GREEN);
+    value_line("LOAD ADDRESS .......", app.image.load_address, CYAN);
+    value_line("ENTRY ADDRESS ......", app.image.entry_address, CYAN);
+    value_line("FIRST ARM WORD .....", app.image.first_word, GREEN);
+
+    if (!loader_image_ready(&app.image)) {
+        console_status("IMAGE READY .......", "FAIL", RED);
+        console_present();
+        for (;;) {
+            __asm__ volatile ("wfi");
+        }
     }
 
+    console_status("IMAGE READY .......", "OK", GREEN);
+    console_status("HANDOFF ...........", "STARTING", YELLOW);
     console_present();
-    for (;;) {}
+
+    /* Keep the final checkpoint visible briefly before DPOSAPP takes over. */
+    short_delay();
+    loader_start_image(&app.image);
 }
