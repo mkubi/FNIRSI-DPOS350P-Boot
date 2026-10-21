@@ -1,6 +1,8 @@
 #include "display.h"
 #include "gpio.h"
-#include "platform.h"
+#include "cache.h"
+#include "regs.h"
+#include "board/dpos350p/memory_map.h"
 
 #define CCU_BASE              0x01C20000U
 #define CCU_PLL_VIDEO_CTRL    (CCU_BASE + 0x0010U)
@@ -54,6 +56,13 @@
 static uintptr_t front_address = FB0_ADDR;
 static uintptr_t back_address = FB1_ADDR;
 
+static void display_delay(unsigned int n)
+{
+    volatile unsigned int i;
+    for (i = 0U; i < n * 10000U; ++i)
+        __asm__ volatile("nop");
+}
+
 static void clear_words(uintptr_t address, unsigned int bytes)
 {
     volatile uint32_t *p = (volatile uint32_t *)address;
@@ -85,7 +94,7 @@ static void display_clock_init(void)
     mmio_write32(CCU_TCON0_CLK, 1U << 31);
     value = mmio_read32(CCU_BUS_SOFT_RST1);
     mmio_write32(CCU_BUS_SOFT_RST1, value | (1U << 12) | (1U << 4));
-    platform_delay(1U);
+    display_delay(1U);
     value = mmio_read32(CCU_BUS_CLK_GATE1);
     mmio_write32(CCU_BUS_CLK_GATE1, value | (1U << 12) | (1U << 4));
 }
@@ -96,7 +105,7 @@ static void de2_init(void)
                             (DISPLAY_WIDTH - 1U);
 
     mmio_write32(DE2_CCU_RST, mmio_read32(DE2_CCU_RST) & ~1U);
-    platform_delay(1U);
+    display_delay(1U);
     mmio_write32(DE2_CCU_RST, mmio_read32(DE2_CCU_RST) | 1U);
     mmio_write32(DE2_CCU_BUS_GATE, mmio_read32(DE2_CCU_BUS_GATE) | 1U);
     mmio_write32(DE2_CCU_GATE, mmio_read32(DE2_CCU_GATE) | 1U);
@@ -136,16 +145,14 @@ static void tcon_init(void)
     mmio_write32(TCON_CTRL, 0U);
     mmio_write32(TCON_INT0, 0U);
     mmio_write32(TCON0_CTRL, 0U);
-    mmio_write32(TCON0_DCLK, (0xFU << 28) | 8U);
-    mmio_write32(TCON0_TIMING_ACTIVE,
-                 ((DISPLAY_HEIGHT - 1U) << 16) | (DISPLAY_WIDTH - 1U));
-    mmio_write32(TCON0_TIMING_H,
-                 ((H_TOTAL - 1U) << 16) | (H_FP + H_SYNC - 1U));
-    mmio_write32(TCON0_TIMING_V,
-                 (V_TOTAL << 17) | (V_FP + V_SYNC - 1U));
-    mmio_write32(TCON0_TIMING_SYNC,
-                 ((V_SYNC - 1U) << 16) | (H_SYNC - 1U));
-    mmio_write32(TCON0_IO_POLARITY, 0x17000000U);
+    /* Verified stable 1024x600 TCON timing from the original SPL. */
+    mmio_write32(TCON0_DCLK,           0xF0000008U);
+    /* TCON encodes (width - 1) in the upper half and (height - 1) below. */
+    mmio_write32(TCON0_TIMING_ACTIVE, 0x03FF0257U);
+    mmio_write32(TCON0_TIMING_H,      0x054300A3U);
+    mmio_write32(TCON0_TIMING_V,      0x04F80017U);
+    mmio_write32(TCON0_TIMING_SYNC,   0x00000000U);
+    mmio_write32(TCON0_IO_POLARITY,   0x17000000U);
     mmio_write32(TCON0_IO_TRI, 0U);
     mmio_write32(TCON0_CTRL, (1U << 31) | start_delay);
     mmio_write32(TCON_CTRL, 1U << 31);
@@ -156,7 +163,7 @@ int display_init(void)
     display_gpio_init();
     display_clock_init();
     display_fill_back(COLOR_BLACK);
-    platform_dcache_clean_range(back_address, FB_SIZE);
+    cache_clean_range(back_address, FB_SIZE);
     front_address = back_address;
     back_address = FB0_ADDR;
     de2_init();
@@ -180,11 +187,11 @@ void display_fill_back(uint16_t color)
 void display_swap(void)
 {
     uintptr_t old_front;
-    platform_dcache_clean_range(back_address, FB_SIZE);
-    platform_dsb();
+    cache_clean_range(back_address, FB_SIZE);
+    cache_dsb();
     mmio_write32(MIX_CH2_BASE + 0x10U, (uint32_t)back_address);
     mmio_write32(GLB_DBUFF, 1U);
-    platform_dsb();
+    cache_dsb();
     old_front = front_address;
     front_address = back_address;
     back_address = old_front;

@@ -1,26 +1,22 @@
-/*
- * Phase 0: linked at 0x41000000 (FEL, above original app at 0x40000000)
- * Phase 5: will need relinking for SRAM entry + DRAM handoff
- */
 ENTRY(_start)
-
 SECTIONS
 {
     . = 0x41000000;
-
-    .text : {
-        arch/r11/start.o(.text.start)
+    .text : ALIGN(4) {
+        KEEP(*(.text.start))
         *(.text*)
     }
-
-    .rodata : { *(.rodata*) }
-
-    .data : { *(.data*) }
-
-    .bss : {
+    .rodata : ALIGN(4) { *(.rodata*) }
+    .data : ALIGN(4) { *(.data*) }
+    .bss (NOLOAD) : ALIGN(4) {
         __bss_start = .;
         *(.bss*)
         *(COMMON)
+        . = ALIGN(4);
         __bss_end = .;
     }
+    __image_end = .;
+    /DISCARD/ : { *(.comment*) *(.note*) *(.ARM.attributes*) }
+    ASSERT(__image_end < 0x4101F000,
+           "Phase 1A image approaches stack at 0x41020000")
 }

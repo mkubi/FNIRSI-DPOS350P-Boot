@@ -1,50 +1,10 @@
 #include "gpio.h"
-
-static uintptr_t gpio_cfg_address(uint32_t port_offset, unsigned int pin)
-{
-    return PIO_BASE + port_offset + (pin / 8U) * 4U;
+#include "regs.h"
+static uintptr_t cfg_addr(uint32_t port, unsigned int pin) { return R11_PIO_BASE + port + (pin / 8U) * 4U; }
+static uintptr_t data_addr(uint32_t port) { return R11_PIO_BASE + port + 0x10U; }
+void gpio_set_function(uint32_t port, unsigned int pin, unsigned int function) {
+    uintptr_t a=cfg_addr(port,pin); unsigned int sh=(pin%8U)*4U; uint32_t v=mmio_read32(a);
+    v &= ~(0x7U<<sh); v |= (function&0x7U)<<sh; mmio_write32(a,v);
 }
-
-static uintptr_t gpio_data_address(uint32_t port_offset)
-{
-    return PIO_BASE + port_offset + 0x10U;
-}
-
-void gpio_set_function(uint32_t port_offset, unsigned int pin,
-                       unsigned int function)
-{
-    uintptr_t address = gpio_cfg_address(port_offset, pin);
-    unsigned int shift = (pin % 8U) * 4U;
-    uint32_t value = mmio_read32(address);
-
-    value &= ~(0x7U << shift);
-    value |= (function & 0x7U) << shift;
-    mmio_write32(address, value);
-}
-
-void gpio_set_output(uint32_t port_offset, unsigned int pin)
-{
-    gpio_set_function(port_offset, pin, 1U);
-}
-
-void gpio_set_input(uint32_t port_offset, unsigned int pin)
-{
-    gpio_set_function(port_offset, pin, 0U);
-}
-
-void gpio_write(uint32_t port_offset, unsigned int pin, int high)
-{
-    uintptr_t address = gpio_data_address(port_offset);
-    uint32_t value = mmio_read32(address);
-
-    if (high)
-        value |= 1U << pin;
-    else
-        value &= ~(1U << pin);
-    mmio_write32(address, value);
-}
-
-int gpio_read(uint32_t port_offset, unsigned int pin)
-{
-    return (int)((mmio_read32(gpio_data_address(port_offset)) >> pin) & 1U);
-}
+void gpio_set_output(uint32_t p,unsigned int n){gpio_set_function(p,n,1U);} void gpio_set_input(uint32_t p,unsigned int n){gpio_set_function(p,n,0U);}
+void gpio_write(uint32_t p,unsigned int n,int high){uintptr_t a=data_addr(p);uint32_t v=mmio_read32(a);if(high)v|=1U<<n;else v&=~(1U<<n);mmio_write32(a,v);} int gpio_read(uint32_t p,unsigned int n){return (int)((mmio_read32(data_addr(p))>>n)&1U);}
