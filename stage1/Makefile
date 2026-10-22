@@ -7,23 +7,44 @@ NM      := $(CROSS_COMPILE)nm
 SIZE    := $(CROSS_COMPILE)size
 
 BUILD := ../build/stage1
-TARGET := $(BUILD)/dpos_stage1a2_clock
+TARGET := $(BUILD)/dpos_stage1a3_dram
+XFEL := xfel-v3s
 
 CFLAGS := -O2 -mcpu=cortex-a7 -mtune=cortex-a7 -marm \
           -mno-thumb-interwork -mno-unaligned-access \
           -ffreestanding -fno-builtin -fno-common -fno-stack-protector \
           -fno-unwind-tables -fno-asynchronous-unwind-tables \
-          -nostdlib -Wall -Wextra -Werror -I.
+          -nostdlib -Wall -Wextra -Werror -I. -I$(XFEL)/include
+
+# The upstream sys-dram.c deliberately publishes DRAM size through word 0x20.
+# GCC 16 diagnoses that low-SRAM access as an array-bounds warning. Keep the
+# exception local to the imported upstream translation unit.
+DRAM_CFLAGS := $(CFLAGS) \
+    -Wno-array-bounds \
+    -Wno-sign-compare \
+    -Wno-unused-parameter
 
 OBJS := \
     $(BUILD)/start.o \
     $(BUILD)/main.o \
-    $(BUILD)/clock.o
+    $(BUILD)/sys-clock.o \
+    $(BUILD)/sys-dram.o \
+    $(BUILD)/memcpy.o \
+    $(BUILD)/memset.o
 
-.PHONY: all clean check
+.PHONY: all clean check import-xfel
 
-all: $(TARGET).bin $(TARGET).lst check
+all: verify-import $(TARGET).bin $(TARGET).lst check
 	$(SIZE) $(TARGET).elf
+
+import-xfel:
+	./import-xfel-v3s.sh
+
+verify-import:
+	@test -f $(XFEL)/source/sys-clock.c || \
+	  { echo "Run: make -C stage1 import-xfel"; exit 1; }
+	@test -f $(XFEL)/source/sys-dram.c || \
+	  { echo "Run: make -C stage1 import-xfel"; exit 1; }
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -31,10 +52,19 @@ $(BUILD):
 $(BUILD)/start.o: start.S | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILD)/main.o: main.c clock.h regs.h result.h | $(BUILD)
+$(BUILD)/main.o: main.c result.h | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILD)/clock.o: clock.c clock.h regs.h | $(BUILD)
+$(BUILD)/sys-clock.o: $(XFEL)/source/sys-clock.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/sys-dram.o: $(XFEL)/source/sys-dram.c | $(BUILD)
+	$(CC) $(DRAM_CFLAGS) -c $< -o $@
+
+$(BUILD)/memcpy.o: $(XFEL)/source/memcpy.S | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/memset.o: $(XFEL)/source/memset.S | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(TARGET).elf: $(OBJS) link.ld

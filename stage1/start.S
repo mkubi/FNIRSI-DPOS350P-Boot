@@ -6,7 +6,9 @@
 .global _start
 .type _start, %function
 
-.extern stage1_clock_main
+.extern sys_clock_init
+.extern sys_dram_init
+.extern stage1_dram_report
 
 .equ FEL_CONTEXT_ADDR, 0x00000040
 
@@ -17,7 +19,7 @@ _start:
     mcr     p15, 0, r0, c7, c10, 4
     mcr     p15, 0, r0, c7, c5, 4
 
-    /* Save the FEL caller context at the same address used by XFEL. */
+    /* Save the FEL caller context exactly as the upstream payload does. */
     ldr     r0, =FEL_CONTEXT_ADDR
     str     sp, [r0, #0]
     str     lr, [r0, #4]
@@ -34,19 +36,16 @@ _start:
     mrc     p15, 0, lr, c1, c0, 0
     str     lr, [r0, #20]
 
-    /*
-     * Pass the original FEL SP and LR to C through the normal ARM ABI:
-     *
-     * r0 = original SP
-     * r1 = original LR
-     */
+    bl      sys_clock_init
+    bl      sys_dram_init
+
+    /* Pass original FEL SP/LR to the diagnostic reporter. */
     ldr     r2, =FEL_CONTEXT_ADDR
     ldr     r0, [r2, #0]
     ldr     r1, [r2, #4]
+    bl      stage1_dram_report
 
-    bl      stage1_clock_main
-
-    /* Restore the same context restored by the XFEL DDR payload. */
+    /* Restore the same context restored by the upstream XFEL DDR payload. */
     ldr     r0, =FEL_CONTEXT_ADDR
     ldr     sp, [r0, #0]
     ldr     lr, [r0, #4]
