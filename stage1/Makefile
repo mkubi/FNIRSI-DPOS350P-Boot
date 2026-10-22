@@ -7,32 +7,33 @@ NM      := $(CROSS_COMPILE)nm
 SIZE    := $(CROSS_COMPILE)size
 
 BUILD := ../build/stage1
-TARGET := $(BUILD)/dpos_stage1a3_dram
+TARGET := $(BUILD)/dpos_stage1b1_spi_nor
 XFEL := xfel-v3s
 
 CFLAGS := -O2 -mcpu=cortex-a7 -mtune=cortex-a7 -marm \
           -mno-thumb-interwork -mno-unaligned-access \
           -ffreestanding -fno-builtin -fno-common -fno-stack-protector \
           -fno-unwind-tables -fno-asynchronous-unwind-tables \
-          -nostdlib -Wall -Wextra -Werror -I. -I$(XFEL)/include
+          -nostdlib -Wall -Wextra -Werror \
+	  -I../arch/r11 -I../drivers -I. -I$(XFEL)/include
 
-# The upstream sys-dram.c deliberately publishes DRAM size through word 0x20.
-# GCC 16 diagnoses that low-SRAM access as an array-bounds warning. Keep the
-# exception local to the imported upstream translation unit.
 DRAM_CFLAGS := $(CFLAGS) \
-    -Wno-array-bounds \
-    -Wno-sign-compare \
-    -Wno-unused-parameter
+    -Wno-error=array-bounds \
+    -Wno-error=sign-compare \
+    -Wno-error=unused-parameter
 
 OBJS := \
     $(BUILD)/start.o \
     $(BUILD)/main.o \
+    $(BUILD)/gpio.o \
+    $(BUILD)/spi0.o \
+    $(BUILD)/spi_nor_ro.o \
     $(BUILD)/sys-clock.o \
     $(BUILD)/sys-dram.o \
     $(BUILD)/memcpy.o \
     $(BUILD)/memset.o
 
-.PHONY: all clean check import-xfel
+.PHONY: all clean check import-xfel verify-import
 
 all: verify-import $(TARGET).bin $(TARGET).lst check
 	$(SIZE) $(TARGET).elf
@@ -52,7 +53,16 @@ $(BUILD):
 $(BUILD)/start.o: start.S | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILD)/main.o: main.c result.h | $(BUILD)
+$(BUILD)/main.o: main.c result.h ../drivers/spi_nor_ro.h | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/gpio.o: ../drivers/gpio.c ../drivers/gpio.h ../arch/r11/regs.h | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/spi0.o: ../drivers/spi0.c ../drivers/spi0.h ../drivers/gpio.h ../arch/r11/regs.h | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/spi_nor_ro.o: ../drivers/spi_nor_ro.c ../drivers/spi_nor_ro.h ../drivers/spi0.h | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/sys-clock.o: $(XFEL)/source/sys-clock.c | $(BUILD)
