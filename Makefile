@@ -15,17 +15,21 @@ CFLAGS := -O2 -mcpu=cortex-a7 -marm -mno-unaligned-access \
 
 SOURCES_C := \
     arch/r11/cache.c \
+    arch/r11/timer.c \
     drivers/gpio.c \
     drivers/display.c \
     drivers/spi0.c \
     drivers/spi_nor_ro.c \
     drivers/sdmmc0.c \
+    drivers/gt911.c \
     storage/fat.c \
     loader/custom.c \
     loader/original.c \
     loader/start.c \
+    loader/boot_targets.c \
     ui/font8x8.c \
     ui/console.c \
+    ui/boot_menu.c \
     main.c
 SOURCES_S := \
     arch/r11/start.S \
