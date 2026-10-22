@@ -7,7 +7,7 @@ NM      := $(CROSS_COMPILE)nm
 SIZE    := $(CROSS_COMPILE)size
 
 BUILD := ../build/stage1
-TARGET := $(BUILD)/dpos_stage1b1_spi_nor
+TARGET := $(BUILD)/dpos_stage1b2_exe2_load
 XFEL := xfel-v3s
 
 CFLAGS := -O2 -mcpu=cortex-a7 -mtune=cortex-a7 -marm \
@@ -15,7 +15,7 @@ CFLAGS := -O2 -mcpu=cortex-a7 -mtune=cortex-a7 -marm \
           -ffreestanding -fno-builtin -fno-common -fno-stack-protector \
           -fno-unwind-tables -fno-asynchronous-unwind-tables \
           -nostdlib -Wall -Wextra -Werror \
-	  -I../arch/r11 -I../drivers -I. -I$(XFEL)/include
+          -I../arch/r11 -I../drivers -I. -I$(XFEL)/include
 
 DRAM_CFLAGS := $(CFLAGS) \
     -Wno-error=array-bounds \

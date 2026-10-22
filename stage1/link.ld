@@ -3,7 +3,7 @@ OUTPUT_ARCH(arm)
 ENTRY(_start)
 
 STAGE1_RESULT_ADDR = 0x00009F80;
-STAGE1_RESULT_SIZE = 0x0000007C;
+STAGE1_RESULT_SIZE = 0x00000080;
 
 MEMORY
 {
@@ -41,7 +41,7 @@ SECTIONS
     }
 
     ASSERT(__image_end <= STAGE1_RESULT_ADDR,
-           "Stage 1B.1 payload overlaps the result block")
+           "Stage 1B.2 payload overlaps the result block")
     ASSERT((STAGE1_RESULT_ADDR + STAGE1_RESULT_SIZE) <= 0x0000A000,
-           "Stage 1B.1 result block exceeds the XFEL SRAM window")
+           "Stage 1B.2 result block exceeds the XFEL SRAM window")
 }

@@ -8,7 +8,7 @@
 
 .extern sys_clock_init
 .extern sys_dram_init
-.extern stage1_spi_report
+.extern stage1_load_report
 
 .equ FEL_CONTEXT_ADDR, 0x00000040
 
@@ -21,7 +21,6 @@ _start:
     ldr     r0, =FEL_CONTEXT_ADDR
     str     sp, [r0, #0]
     str     lr, [r0, #4]
-
     mrs     lr, cpsr
     str     lr, [r0, #8]
     mrc     p15, 0, lr, c1, c0, 0
@@ -37,7 +36,7 @@ _start:
     ldr     r2, =FEL_CONTEXT_ADDR
     ldr     r0, [r2, #0]
     ldr     r1, [r2, #4]
-    bl      stage1_spi_report
+    bl      stage1_load_report
 
     ldr     r0, =FEL_CONTEXT_ADDR
     ldr     sp, [r0, #0]
