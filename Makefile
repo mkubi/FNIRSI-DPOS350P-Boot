@@ -36,7 +36,14 @@ SOURCES_S := \
     loader/jump.S
 
 OBJECTS := $(patsubst %.c,$(BUILD)/%.o,$(SOURCES_C)) $(patsubst %.S,$(BUILD)/%.o,$(SOURCES_S))
-.PHONY: all clean check
+.PHONY: all clean check stage1 stage1-clean
+
+stage1:
+	$(MAKE) -C stage1
+
+stage1-clean: 
+	$(MAKE) -C stage1 clean
+
 all: check $(TARGET).bin $(TARGET).lst
 	$(SIZE) $(TARGET).elf
 check:
