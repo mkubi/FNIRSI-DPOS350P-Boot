@@ -1,0 +1,91 @@
+CROSS_COMPILE ?= arm-none-eabi-
+CC      := $(CROSS_COMPILE)gcc
+LD      := $(CROSS_COMPILE)ld
+OBJCOPY := $(CROSS_COMPILE)objcopy
+OBJDUMP := $(CROSS_COMPILE)objdump
+NM      := $(CROSS_COMPILE)nm
+SIZE    := $(CROSS_COMPILE)size
+PYTHON  ?= python
+
+BUILD := ../build/stage1c
+RAW := $(BUILD)/dpos_stage1c_bt0_raw
+FINAL := $(BUILD)/dpos_stage1c_egon_bt0.bin
+XFEL := xfel-v3s
+
+CFLAGS := -O2 -mcpu=cortex-a7 -mtune=cortex-a7 -marm \
+          -mno-thumb-interwork -mno-unaligned-access \
+          -ffreestanding -fno-builtin -fno-common -fno-stack-protector \
+          -fno-unwind-tables -fno-asynchronous-unwind-tables \
+          -nostdlib -Wall -Wextra -Werror \
+          -I../arch/r11 -I../drivers -I. -I$(XFEL)/include
+
+DRAM_CFLAGS := $(CFLAGS) \
+    -Wno-error=array-bounds \
+    -Wno-error=sign-compare \
+    -Wno-error=unused-parameter
+
+OBJS := $(BUILD)/start_bt0.o $(BUILD)/main.o $(BUILD)/gpio.o \
+        $(BUILD)/spi0.o $(BUILD)/spi_nor_ro.o \
+        $(BUILD)/sys-clock.o $(BUILD)/sys-dram.o \
+        $(BUILD)/memcpy.o $(BUILD)/memset.o
+
+.PHONY: all clean check verify-import verify
+all: verify-import $(FINAL) $(RAW).lst check verify
+	$(SIZE) $(RAW).elf
+
+verify-import:
+	@test -f $(XFEL)/source/sys-clock.c || { echo "Missing imported XFEL clock source"; exit 1; }
+	@test -f $(XFEL)/source/sys-dram.c || { echo "Missing imported XFEL DRAM source"; exit 1; }
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+$(BUILD)/start_bt0.o: start_bt0.S | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/main.o: main.c result.h ../drivers/spi_nor_ro.h | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/gpio.o: ../drivers/gpio.c ../drivers/gpio.h ../arch/r11/regs.h | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/spi0.o: ../drivers/spi0.c ../drivers/spi0.h ../drivers/gpio.h ../arch/r11/regs.h | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/spi_nor_ro.o: ../drivers/spi_nor_ro.c ../drivers/spi_nor_ro.h ../drivers/spi0.h | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/sys-clock.o: $(XFEL)/source/sys-clock.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/sys-dram.o: $(XFEL)/source/sys-dram.c | $(BUILD)
+	$(CC) $(DRAM_CFLAGS) -c $< -o $@
+
+$(BUILD)/memcpy.o: $(XFEL)/source/memcpy.S | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/memset.o: $(XFEL)/source/memset.S | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(RAW).elf: $(OBJS) link_bt0.ld
+	$(LD) -T link_bt0.ld -Map=$(RAW).map $(OBJS) -o $@
+
+$(RAW).bin: $(RAW).elf
+	$(OBJCOPY) -O binary $< $@
+
+$(RAW).lst: $(RAW).elf
+	$(OBJDUMP) -d -m arm -M reg-names-std $< > $@
+
+$(FINAL): $(RAW).bin ../tools/mkbt0.py
+	$(PYTHON) ../tools/mkbt0.py $(RAW).bin $@
+
+check: $(RAW).elf
+	@if $(NM) $(RAW).elf | grep -q ' U '; then $(NM) $(RAW).elf | grep ' U '; exit 1; fi
+	@test $$($(NM) -n $(RAW).elf | awk '/ _start$$/ {print $$1}') = 00000000
+	@test $$($(NM) -n $(RAW).elf | awk '/ stage2_handoff$$/ {print $$1}') != ""
+
+verify: $(FINAL)
+	$(PYTHON) ../tools/mkbt0.py --verify $(FINAL)
+
+clean:
+	rm -rf $(BUILD)

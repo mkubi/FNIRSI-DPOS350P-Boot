@@ -1,404 +1,361 @@
-# FNIRSI-DPOS350P-Boot
+# FNIRSI DPOS350P Boot
 
-Custom bare-metal boot manager for the FNIRSI DPOS350P oscilloscope
-(Allwinner R11 / V3s, ARM Cortex-A7).
+Custom two-stage bootloader for the FNIRSI DPOS350P oscilloscope based on the Allwinner V3s/R11.
 
-> **Status:** The FEL-based Stage 2 boot manager is functional on real hardware.
-> It can boot a custom application from SD-NAND and both original FNIRSI
-> applications from SPI NOR. Autonomous power-on boot still requires the SRAM
-> Stage 1 loader and native DRAM initialization.
-
-## Goals
-
-The project aims to provide a small boot manager that can:
-
-- initialize and use the 1024x600 display,
-- present a GT911 touchscreen boot menu,
-- boot a custom ARM application from internal SD-NAND,
-- boot the original FNIRSI oscilloscope application from SPI NOR,
-- boot the original standalone USB Connect application from SPI NOR,
-- preserve a reliable FEL recovery path,
-- eventually boot autonomously from SPI NOR without `xfel ddr v3s`.
-
-The intended final architecture is:
-
-```text
-BootROM
-   |
-   +-- SRAM Stage 1
-   |     +-- clocks
-   |     +-- DDR2 initialization
-   |     +-- load Stage 2 from SPI NOR
-   |
-   +-- Stage 2 Boot Manager @ 0x41000000
-         +-- display + touch UI
-         +-- SD-NAND / FAT
-         +-- original SPI NOR images
-         +-- selected application @ 0x40000000
-```
-
-## Hardware
-
-- **SoC:** Allwinner R11 / V3s compatible Cortex-A7
-- **DRAM:** 64 MiB DDR2 SIP
-- **SPI NOR:** Winbond 2 MiB, JEDEC `EF 40 15`
-- **SD-NAND:** CSNP1GCR01-B0W
-- **Display:** 1024x600 RGB565 IPS
-- **Touch:** GT911 capacitive controller
-
-Confirmed GT911 wiring:
-
-```text
-PE22  INT
-PE24  RESET
-PG6   SDA
-PG7   SCL
-```
-
-Hardware documentation and earlier reverse-engineering work live in the
-companion `FNIRSI-DPOS350P-Hack` repository.
+The project has reached a major milestone: the oscilloscope now boots autonomously from its internal SPI NOR through a custom Stage 1 and Stage 2 boot chain. No FEL/XFEL connection or SPI-CS boot strap is required during normal operation.
 
 ## Current status
 
-Confirmed working on real hardware:
+**Autonomous custom boot from SPI NOR is confirmed working.**
 
-- 1024x600 DE2/TCON0 display initialization
-- RGB565 framebuffer and on-screen debug console
-- SPI0 and read-only SPI NOR access
-- Winbond JEDEC `EF 40 15`
-- chunked SPI NOR reads
-- eGON image parsing and payload loading
-- original EXE1 / USB Connect chainload
-- original EXE2 / oscilloscope chainload
-- SDC0 and internal SD-NAND initialization
-- repeated CMD17 512-byte sector reads through PIO FIFO
-- MBR parsing
-- FAT16/FAT32 read-only filesystem support
-- FAT cluster-chain traversal
-- `DPOSAPP.BIN` lookup and complete file loading
-- cache-safe application handoff through BLX
-- hardware Timer 0 based autoboot timing
-- GT911 GPIO bit-banged I2C
-- touch-controlled boot target selection
-- autoboot fallback when touch is unavailable
-
-Current boot targets:
+Verified boot chain:
 
 ```text
-CUSTOM APPLICATION
-ORIGINAL OSCILLOSCOPE
-USB CONNECT
+Power-on
+  -> Allwinner BootROM
+  -> custom eGON.BT0 / Stage 1 from SPI NOR @ 0x000000
+  -> native clock initialization
+  -> native DDR2 initialization
+  -> SPI0 / Winbond W25Q16JV
+  -> STG2 container from SPI NOR @ 0x1DB000
+  -> header and CRC32 validation
+  -> Stage 2 payload loaded to DRAM @ 0x41000000
+  -> Stage 2 boot menu
+  -> touch input
+  -> selected loader
+  -> original FNIRSI application or other target
 ```
 
-## Stage 2 boot flow
+Confirmed on hardware:
 
-The current development build is linked at `0x41000000` and uses DRAM that has
-already been initialized by XFEL.
+- BootROM accepts the custom `eGON.BT0` image.
+- Stage 1 runs natively from SRAM at address `0x00000000`.
+- Stage 1 initializes clocks and 64 MiB DDR2 without XFEL DDR setup.
+- Stage 1 initializes SPI0 and reads the Winbond W25Q16JV (`JEDEC EF 40 15`).
+- Stage 1 loads Stage 2 from the dedicated NOR slot at `0x1DB000`.
+- Stage 2 header validation and CRC32 verification work.
+- Stage 2 is loaded byte-for-byte correctly to `0x41000000`.
+- Stage 1 -> Stage 2 handoff works.
+- Display and boot menu work after autonomous power-on.
+- GT911 touch input works.
+- Stage 2 can chainload the original oscilloscope application successfully.
+- Normal boot no longer requires FEL, XFEL, or the SPI-CS recovery wire.
+
+## Hardware
+
+Known relevant hardware:
 
 ```text
-xfel ddr v3s
-      |
-      v
-Stage 2 @ 0x41000000
-      |
-      +-- initialize display and timer
-      +-- probe DPOSAPP.BIN
-      +-- probe original EXE2
-      +-- probe original EXE1
-      +-- initialize GT911
-      +-- show boot menu
-      |
-      v
-load selected target @ 0x40000000
-      |
-      +-- clean D-cache range
-      +-- invalidate I-cache
-      +-- invalidate branch predictor
-      +-- DSB / ISB
-      +-- disable IRQ/FIQ
-      |
-      v
-BLX 0x40000000
+SoC:       Allwinner V3s / R11, ARM Cortex-A7
+DRAM:      64 MiB DDR2, base 0x40000000
+SPI NOR:   Winbond W25Q16JV, 2 MiB, JEDEC EF 40 15
+Display:   800x480 RGB
+Touch:     Goodix GT911
+FPGA:      GOWIN
+SD-NAND:   1 GiB, FAT16 on the tested unit
 ```
 
-Without touch input the first available target is started automatically after
-an autoboot timeout. A real touch outside a target cancels autoboot and leaves
-the menu active.
+The SPI NOR remains the primary boot device. The SD-NAND is used by the original firmware/update environment and is also being investigated as a source for custom applications and future boot/update flows.
 
-## Boot targets
+## Boot architecture
 
-### Custom application
+### Stage 1
 
-The custom application is loaded from the root of the internal FAT filesystem:
+Stage 1 is deliberately small and recovery-critical. It is intended to remain stable once the boot path is finalized.
+
+Responsibilities:
 
 ```text
-Filename:       DPOSAPP.BIN
-FAT 8.3 name:   DPOSAPP BIN
-Load address:   0x40000000
-Entry address:  0x40000000
-Header skip:    0
+BootROM entry
+  -> clocks
+  -> DDR2
+  -> SPI0
+  -> read STG2 header
+  -> validate size/load/entry fields
+  -> load Stage 2
+  -> validate CRC32
+  -> synchronize execution state
+  -> jump to Stage 2
 ```
 
-The current test application is a raw ARM binary. The FAT loader follows the
-cluster chain, so the file does not need to be physically contiguous.
+Two Stage 1 build modes are currently useful during development:
 
-### Original oscilloscope, EXE2
+- FEL build, linked for SRAM `0x00008000`, used for safe development/testing.
+- BootROM-native BT0 build, linked at `0x00000000`, used for autonomous SPI NOR boot.
+
+The autonomous image uses the compact 32-byte DPOS350P `eGON.BT0` layout recovered from the original SPL:
 
 ```text
-Header offset:   0x000A8000
-Total size:      0x00095800
-Payload offset:  0x000A8020
-Payload size:    0x000957E0
-Load address:    0x40000000
-Entry address:   0x40000000
+0x00  ARM branch to 0x20
+0x04  "eGON.BT0"
+0x0C  Allwinner checksum
+0x10  image length
+0x14  "SPL\x02"
+0x18  reserved
+0x1C  reserved
+0x20  Stage 1 entry
 ```
 
-### USB Connect, EXE1
+The final image currently preserves the original BT0 size:
 
 ```text
-Header offset:   0x00018000
-Total size:      0x00024800
-Payload offset:  0x00018020
-Payload size:    0x000247E0
-Load address:    0x40000000
-Entry address:   0x40000000
+0x6800 = 26624 bytes
 ```
 
-The project deliberately calls EXE1 **USB Connect**. Although the image contains
-USB, SD/MMC and firmware-related code, its complete update behavior is not yet
-understood well enough to label the boot target as an updater.
+The Allwinner checksum is calculated over the declared image length using `0x5F0A6C39` in the checksum field during calculation.
 
-## eGON handoff
+### Stage 2
 
-The original SPL does not copy the 32-byte `eGON.EXE` header to the execution
-address. The boot manager reproduces this behavior:
+Stage 2 is the feature-rich boot manager and is designed to be easy to extend without changing Stage 1.
+
+Current Stage 2 features include:
+
+- display initialization,
+- framebuffer console/UI,
+- boot menu,
+- GT911 touch,
+- loading/chaining original FNIRSI firmware components,
+- infrastructure for custom applications and storage loaders.
+
+Current Stage 2 load address:
 
 ```text
-validate header
-skip 0x20-byte eGON header
-copy payload to 0x40000000
-BLX 0x40000000
+0x41000000
 ```
 
-Observed EXE2 header:
+Current Stage 2 payload size at the successful autonomous-boot milestone:
 
 ```text
-+0x00  0xEA000006
-+0x04  "eGON"
-+0x08  ".EXE"
-+0x0C  0x00000003
-+0x10  0x00095800
-+0x14  "EXEC"
-+0x18  0x00000000
-+0x1C  0x00000000
+15212 bytes (0x3B6C)
 ```
 
-Both original images have been successfully loaded and started using this
-handoff.
+## STG2 image format
 
-## Internal SD-NAND and filesystem
-
-Confirmed SDC0 Port F configuration includes:
+Stage 2 is stored in a dedicated 64 KiB SPI NOR slot:
 
 ```text
-PF0..PF5 function: 2
-PF_CFG0:           0x07222222
-PF_PUL0:           0x00000555
+0x1DB000 - 0x1EAFFF
 ```
 
-An important GPIO correction found during bring-up was:
-
-```c
-#define GPIO_PORT_F 0xB4U
-```
-
-GPIO function fields use four-bit masks (`0xF`), not three-bit masks.
-
-The tested internal filesystem is FAT16:
+The slot begins with a custom 32-byte `STG2` header:
 
 ```text
-Partition type:    0x06
-Start LBA:         0x0000003F
-Sector count:      0x0003C7C1
-MBR signature:     0x55AA
+u32 magic          = "STG2"
+u32 version        = 1
+u32 header_size    = 32
+u32 payload_size
+u32 load_address   = 0x41000000
+u32 entry_address
+u32 payload_crc32
+u32 flags          = 0
 ```
 
-The filesystem layer supports read-only FAT16/FAT32 autodetection, root
-8.3-name lookup and cluster-chain traversal.
+The payload follows immediately after the header. Unused slot space is padded with `0xFF`.
 
-## GT911 touch
-
-The GT911 driver currently uses GPIO bit-banged I2C:
-
-```text
-7-bit address: 0x5D
-write address: 0xBA
-read address:  0xBB
-
-0x8140  Product ID
-0x814E  coordinate status
-0x8150  first touch point
-```
-
-Current menu behavior:
-
-```text
-No touch:
-    autoboot continues
-
-Touch on an available target:
-    target starts immediately
-
-Touch outside a target:
-    autoboot is cancelled
-    menu waits for selection
-
-Release / empty event:
-    does not cancel autoboot
-    does not overwrite the last valid coordinates
-
-Touch communication failure:
-    touch is disabled
-    autoboot remains available as fallback
-```
-
-The touch driver is functional but not considered final. Some physical touches
-appear to be missed intermittently. Reset timing, INT handling, GPIO pulls,
-bit-banged I2C timing and polling behavior remain follow-up items.
-
-## Hardware timer
-
-Timer 0 is used as a free-running 32-bit down-counter from OSC24M:
-
-```text
-Base:       0x01C20C00
-Control:    0x01C20C10
-Interval:   0x01C20C14
-Current:    0x01C20C18
-Clock:      24 MHz
-```
-
-It provides millisecond/microsecond delays, autoboot deadlines and touch
-polling timing.
-
-## Important compiler notes
-
-The build currently requires:
-
-```text
--mno-unaligned-access
-```
-
-During SPI NOR bring-up GCC `-O2` generated an unaligned ARM halfword load from
-a local byte buffer, causing JEDEC reads to stall. The flag fixed the issue and
-remains part of the known-good baseline.
-
-The project is freestanding and does not link libc. GCC can still lower a
-structure assignment into an external `memcpy()` call. Small structures are
-therefore copied field by field where necessary.
-
-## Source tree
-
-```text
-arch/r11/       R11/V3s startup, cache, timer; future clocks and DRAM
-board/dpos350p/ Board-specific configuration and memory map
-drivers/        Display, GPIO, SPI NOR, SDC0, GT911
-storage/        FAT16/FAT32 read-only filesystem
-loader/         Custom/original loaders, boot targets and handoff
-ui/             Framebuffer console and touch boot menu
-main.c          Stage 2 boot-manager entry point
-link.ld         Stage 2 linked at 0x41000000
-PLAN.md         Detailed development roadmap
-```
-
-## Development status
-
-```text
-FEL workflow / display / console       DONE
-SPI NOR and original image loading     DONE
-SDC0 / SD-NAND sector reads            DONE
-FAT16/FAT32 read-only support          DONE
-DPOSAPP.BIN loader                     DONE
-EXE1 / EXE2 loaders                    DONE
-Cache-safe BLX handoff                 DONE
-Hardware timed boot menu               DONE
-GT911 touch boot selection             FUNCTIONAL
-GT911 reliability cleanup              TODO
-SRAM Stage 1                           TODO
-Native clock / DRAM initialization     TODO
-Autonomous SPI NOR boot                TODO
-```
-
-## Building and running through FEL
+Build the slot image with:
 
 ```bash
-make clean
-make
-
-xfel ddr v3s
-xfel write 0x41000000 build/dpos_display_spl_clone.bin
-xfel exec  0x41000000
+python tools/mkstg2.py \
+    build/dpos_display_spl_clone.bin \
+    build/dpos_stage2_slot.bin
 ```
 
-Required tools include an `arm-none-eabi` bare-metal toolchain and `xfel`.
-
-## Next major milestone
-
-The next major low-level milestone is an SRAM-resident Stage 1 so that the
-boot manager no longer depends on `xfel ddr v3s`:
+At the verified milestone the Stage 2 CRC32 was:
 
 ```text
-BootROM
-  |
-  +-- SRAM Stage 1
-        +-- clock initialization
-        +-- DDR2 initialization
-        +-- DRAM test
-        +-- SPI NOR Stage 2 load
-        |
-        +-- Stage 2 @ 0x41000000
+0xBAF1E1C1
 ```
 
-The V3s/S3 DDR initialization used by XFEL is the primary reference for the
-first native DRAM implementation. Mainline U-Boot and the original FNIRSI
-`eGON.BT0` are additional references.
+This value changes whenever the Stage 2 binary changes and is generated automatically by `mkstg2.py`.
+
+## SPI NOR map
+
+Current working map of the 2 MiB Winbond:
+
+```text
+0x000000 - 0x0067FF  original/custom eGON.BT0 Stage 1 region
+0x006800 - 0x017FFF  reserved / currently preserved
+0x018000 - 0x03C7FF  original EXE1 / updater
+0x03C800 - 0x056FFF  reserved / currently preserved
+0x057000 - 0x13E855  original ISO update region
+0x13E856 - 0x13FFFF  padding / end of update sector
+0x140000 - 0x1DAFFF  unknown existing data, preserve
+0x1DB000 - 0x1EAFFF  custom Stage 2 slot, 64 KiB
+0x1EB000 - 0x1EEFFF  calibration/configuration data, preserve
+0x1EF000 - 0x1EFFFF  empty in current dump
+0x1F0000 - 0x1FDFFF  metadata/version/configuration data, preserve
+0x1FE000 - 0x1FFFFF  empty in current dump
+```
+
+Do not treat unused-looking upper NOR regions as generally free space. Only the dedicated Stage 2 slot is used by this bootloader.
+
+## Original updater findings
+
+Reverse engineering of the original EXE1 updater established several useful properties:
+
+- it contains SD/MMC and FAT filesystem support,
+- it searches for a firmware file and exposes messages such as `Found new firmware !`, `Prepare for upgrade`, `Upgrading ...`, and `write end`,
+- its NOR writer operates on 4 KiB erase-sector boundaries,
+- page programming is split on 256-byte boundaries,
+- the update ISO is not a raw 2 MiB NOR image,
+- the tested original ISO maps into the NOR firmware area with an offset of `+0x57000` for the confirmed ranges,
+- the original update region ends around `0x13E855`, far below the custom Stage 2 slot at `0x1DB000`.
+
+The tested original ISO size was 948310 bytes. Block comparison against the physical NOR dump identified linear mappings including:
+
+```text
+ISO 0x001000-0x018FFF -> NOR 0x058000-0x06FFFF
+ISO 0x050000-0x0E6FFF -> NOR 0x0A7000-0x13DFFF
+```
+
+Both use the same `+0x57000` mapping offset.
+
+## Build Stage 1 for FEL testing
+
+The development/FEL Stage 1 build can be built with the normal Stage 1 target:
+
+```bash
+make stage1-clean
+make stage1
+```
+
+The verified Stage 1B.4 development flow was:
+
+```text
+XFEL -> SRAM 0x8000 -> Stage 1 -> STG2 -> Stage 2 -> Original App
+```
+
+This remains useful as a safe regression and recovery test path.
+
+## Build autonomous eGON.BT0 Stage 1
+
+Stage 1C uses a separate BootROM-native build:
+
+```bash
+make -C stage1 -f Makefile.bt0 clean
+make -C stage1 -f Makefile.bt0
+```
+
+Generated files include:
+
+```text
+build/stage1c/dpos_stage1c_bt0_raw.elf
+build/stage1c/dpos_stage1c_bt0_raw.bin
+build/stage1c/dpos_stage1c_bt0_raw.lst
+build/stage1c/dpos_stage1c_egon_bt0.bin
+```
+
+Verify the final image offline:
+
+```bash
+python tools/mkbt0.py \
+    --verify \
+    build/stage1c/dpos_stage1c_egon_bt0.bin
+```
+
+Expected structural properties:
+
+```text
+magic          eGON.BT0
+branch target  0x20
+length         0x6800
+marker         SPL\x02
+checksum       valid
+```
+
+At the first successful autonomous-boot milestone the generated checksum was:
+
+```text
+0x1B661BEE
+```
+
+As with the Stage 2 CRC, this will change when Stage 1 changes.
 
 ## Recovery
 
-Keep FEL recovery available during development.
+FEL remains the recovery mechanism.
 
-Before modifying boot-critical SPI NOR contents:
+If the internal BT0 is invalid or a future Stage 1 build fails, the V3s can still be forced into FEL using the known SPI-CS boot strap/debug method. From FEL, the original BT0 backup can be written back to SPI NOR.
 
-1. keep a verified full SPI NOR backup,
-2. verify FEL entry and recovery wiring,
-3. test Stage 1 entirely from SRAM,
-4. verify native DRAM initialization,
-5. verify Stage 1 -> Stage 2 loading,
-6. only then install a persistent Stage 1.
+Always keep an untouched full 2 MiB Winbond backup and the original `0x6800` BT0 image outside the repository.
 
-The current Stage 2 SPI NOR driver is intentionally read-only.
+Development dumps and reverse-engineering artifacts belong under:
 
-## Known limitations
+```text
+work/
+```
 
-- Stage 2 still depends on `xfel ddr v3s`
-- native DRAM initialization is not implemented
-- SRAM Stage 1 is not implemented
-- autonomous power-on boot from SPI NOR is not implemented
-- GT911 occasionally appears to miss touches
-- current UI is console-based
-- FAT support is read-only and limited to 8.3 root-directory lookup
-- custom applications do not yet use a formal image header or CRC
-- application return to the boot manager is not supported
-- SD/MMC performance paths such as CMD18, DMA and higher-speed modes are not
-  implemented
+The `work/` directory is intentionally ignored by Git.
 
-## Related project
+## Repository layout
 
-Hardware documentation, firmware analysis and earlier reverse-engineering work:
+```text
+arch/r11/       SoC-specific definitions and low-level support
+board/dpos350p/ board configuration
+drivers/        display, GPIO, touch, SPI NOR and other drivers
+storage/        block-device/FAT work
+loader/         original/custom image loaders
+ui/             boot menu and UI
+stage1/         SRAM Stage 1, FEL build and BootROM-native BT0 build
+tools/          host-side image/build helpers
+work/           local dumps and RE artifacts, ignored by Git
+main.c          Stage 2 entry
+link.ld         Stage 2 linker script
+Makefile        primary build
+PLAN.md         project plan and milestone notes
+README.md       current project status
+```
 
-[FNIRSI-DPOS350P-Hack](https://github.com/mkubi/FNIRSI-DPOS350P-Hack)
+## Verified milestones
 
-## License
+```text
+Stage 1A     SRAM execution and safe FEL return
+Stage 1A.2   native clock initialization
+Stage 1A.3   native DDR2 initialization
+Stage 1B.1   native read-only SPI NOR access, JEDEC EF 40 15
+Stage 1B.2   complete EXE2 NOR -> DRAM transfer, byte-identical
+Stage 1B.3   STG2 slot/header/CRC validation and load to 0x41000000
+Stage 1B.4   Stage 1 -> Stage 2 handoff; menu/touch/original app verified
+Stage 1C     BootROM-native eGON.BT0; autonomous power-on boot verified
+```
 
-MIT
+## Next milestone
 
+The bootloader itself is now functional. The next major task is deployment through the normal FNIRSI firmware-update workflow.
+
+Target user experience:
+
+```text
+copy custom DPOS350P firmware ISO to SD-NAND
+  -> reboot
+  -> original/customized updater starts
+  -> validate package
+  -> install/verify Stage 2 first
+  -> install/verify Stage 1 eGON.BT0 last
+  -> reboot
+  -> custom boot menu
+```
+
+The final installation path should not require XFEL or manual SPI NOR commands. FEL remains recovery-only.
+
+A safe installer must preserve the original updater, calibration data, device-specific metadata, and all currently unknown upper-NOR regions outside the explicitly allocated Stage 1 and Stage 2 areas.
+
+## Safety notes
+
+- Keep a full, verified 2 MiB SPI NOR backup before experimenting with writes.
+- Never erase unknown upper-NOR regions merely because some sectors contain `0xFF`.
+- Preserve calibration/configuration areas from `0x1EB000` upward unless their format is explicitly understood.
+- Program Stage 2 before Stage 1 during installation so Stage 1 is never installed without a valid second stage.
+- Verify every persistent write by reading it back and comparing byte-for-byte.
+- Keep FEL recovery available while developing new Stage 1 versions.
+
+## Project goal
+
+The goal is a small and stable first-stage bootloader plus an extensible second-stage boot manager for the DPOS350P:
+
+```text
+Stage 1 = minimal, stable, recovery-critical hardware bring-up + verified loader
+Stage 2 = extensible UI, storage, boot selection, diagnostics and custom applications
+```
+
+This architecture allows Stage 2 to evolve without repeatedly modifying the BootROM-facing Stage 1.
