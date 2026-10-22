@@ -7,29 +7,34 @@ NM      := $(CROSS_COMPILE)nm
 SIZE    := $(CROSS_COMPILE)size
 
 BUILD := ../build/stage1
-TARGET := $(BUILD)/dpos_stage1a_xfel_return
+TARGET := $(BUILD)/dpos_stage1a2_clock
 
-CFLAGS := -O2 -mcpu=cortex-a7 -marm -mno-unaligned-access \
-          -ffreestanding -fno-builtin -fno-common \
+CFLAGS := -O2 -mcpu=cortex-a7 -mtune=cortex-a7 -marm \
+          -mno-thumb-interwork -mno-unaligned-access \
+          -ffreestanding -fno-builtin -fno-common -fno-stack-protector \
           -fno-unwind-tables -fno-asynchronous-unwind-tables \
-          -nostdlib -Wall -Wextra -Werror
+          -nostdlib -Wall -Wextra -Werror -I.
 
-OBJS := $(BUILD)/start.o
+OBJS := \
+    $(BUILD)/start.o \
+    $(BUILD)/main.o \
+    $(BUILD)/clock.o
 
 .PHONY: all clean check
 
 all: $(TARGET).bin $(TARGET).lst check
 	$(SIZE) $(TARGET).elf
-	@bytes=$$(stat -c %s $(TARGET).bin); \
-	if [ $$bytes -gt 256 ]; then \
-		echo "Payload is $$bytes bytes and overlaps result block at +0x100"; \
-		exit 1; \
-	fi
 
 $(BUILD):
 	mkdir -p $(BUILD)
 
 $(BUILD)/start.o: start.S | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/main.o: main.c clock.h regs.h result.h | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/clock.o: clock.c clock.h regs.h | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(TARGET).elf: $(OBJS) link.ld
