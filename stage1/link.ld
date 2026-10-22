@@ -2,8 +2,8 @@ OUTPUT_FORMAT("elf32-littlearm", "elf32-bigarm", "elf32-littlearm")
 OUTPUT_ARCH(arm)
 ENTRY(_start)
 
-STAGE1_RESULT_ADDR = 0x00009F80;
-STAGE1_RESULT_SIZE = 0x00000080;
+STAGE1_RESULT_ADDR = 0x00009F70;
+STAGE1_RESULT_SIZE = 0x00000090;
 
 MEMORY
 {
@@ -17,31 +17,21 @@ SECTIONS
         KEEP(*(.text.start))
         *(.text*)
     } > ram
-
     .rodata : ALIGN(4) { *(.rodata*) } > ram
     .data : ALIGN(4) { *(.data*) } > ram
-
     .bss (NOLOAD) : ALIGN(4) {
         __bss_start = .;
-        *(.bss*)
-        *(.sbss*)
-        *(COMMON)
+        *(.bss*) *(.sbss*) *(COMMON)
         . = ALIGN(4);
         __bss_end = .;
     } > ram
-
     __image_end = .;
-
     /DISCARD/ : {
-        *(.comment*)
-        *(.note*)
-        *(.ARM.attributes*)
-        *(.ARM.exidx*)
-        *(.ARM.extab*)
+        *(.comment*) *(.note*) *(.ARM.attributes*)
+        *(.ARM.exidx*) *(.ARM.extab*)
     }
-
     ASSERT(__image_end <= STAGE1_RESULT_ADDR,
-           "Stage 1B.2 payload overlaps the result block")
+           "Stage 1B.3 payload overlaps result block")
     ASSERT((STAGE1_RESULT_ADDR + STAGE1_RESULT_SIZE) <= 0x0000A000,
-           "Stage 1B.2 result block exceeds the XFEL SRAM window")
+           "Stage 1B.3 result block exceeds SRAM window")
 }

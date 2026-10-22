@@ -3,5 +3,6 @@
 *.bin
 *.map
 /build/
+/work/
 /stage1/xfel-v3s/
 
