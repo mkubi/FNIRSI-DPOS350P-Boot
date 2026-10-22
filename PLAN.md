@@ -1,232 +1,643 @@
-# DPOS350P custom boot manager: awboot reference plan
+# FNIRSI-DPOS350P-Boot Development Plan
 
-## Goal
+Development roadmap for the FNIRSI DPOS350P custom bare-metal boot manager.
 
-Build a small R11/V3s boot manager that can:
+## Current milestone
 
-1. initialize clocks and the 64 MiB SIP DDR2;
-2. initialize the DE2/TCON0 display and GT911 touch controller;
-3. show a boot menu;
-4. load and execute the original FNIRSI application from SPI NOR;
-5. load and execute a custom application from the CSNP1GCR01-B0W SD-NAND;
-6. preserve a hardware FEL recovery path by holding SPI0 CS low during reset.
+The FEL-based Stage 2 boot manager is functional on real hardware.
 
-## Confirmed DPOS350P facts
-
-- SoC: Allwinner R11/V3s family, ARM Cortex-A7.
-- Boot ROM accepts the existing eGON BT0/SPL image from SPI NOR offset 0.
-- Original application is stored at SPI NOR offset 0x000A8000.
-- Original application is loaded to RAM address 0x40000000.
-- xfel can initialize DDR using `xfel ddr v3s`.
-- Display: 1024x600 RGB565 through DE2 mixer 0, channel 2.
-- Framebuffers proven working at 0x43000000 and 0x43200000.
-- GT911 touch is proven working through bit-banged I2C:
-  - SDA = PG6
-  - SCL = PG7
-  - INT = PE22
-  - RESET = PE24
-  - address = 0x5d
-  - status = 0x814e
-  - first point = 0x8150
-- SD-NAND: CSNP1GCR01-B0W, connected to SDC2.
-
-## What to reuse from awboot
-
-Use awboot as a design and code reference, not as a drop-in R11 port.
-
-Candidate reusable concepts:
-
-- separation of architecture, board and generic drivers;
-- `board_init()` and board device descriptions;
-- SDRAM address-range validation before loading an image;
-- storage-independent image metadata;
-- SD/MMC driver structure;
-- FAT/filesystem loader structure;
-- FEL build/workflow concepts;
-- eGON image generation.
-
-Do not initially reuse:
-
-- T113/V851 register addresses;
-- T113/V851 clock setup;
-- T113/V851 DRAM training values;
-- T113/V851 GPIO mux values;
-- Linux/PSCI boot path.
-
-Those are SoC-specific and must be replaced with R11/V3s values.
-
-## Proposed source tree
+Current known-good functionality:
 
 ```text
-dpos-boot/
-  arch/r11/
-    start.S
-    clock.c
-    clock.h
-    dram.c
-    dram.h
-    cache.c
-    cache.h
-    regs.h
-
-  board/dpos350p/
-    board.c
-    board.h
-    memory_map.h
-
-  drivers/
-    gpio.c
-    gpio.h
-    display.c
-    display.h
-    gt911.c
-    gt911.h
-    spi_nor_ro.c
-    spi_nor_ro.h
-    sdc2.c
-    sdc2.h
-
-  storage/
-    blockdev.c
-    blockdev.h
-    fat.c
-    fat.h
-
-  loader/
-    image.c
-    image.h
-    original.c
-    custom.c
-    jump.S
-
-  ui/
-    boot_menu.c
-    boot_menu.h
-
-  main.c
-  link.ld
-  Makefile
+Display / framebuffer console          DONE
+SPI NOR read path                      DONE
+Original EXE1 / USB Connect loader     DONE
+Original EXE2 / oscilloscope loader    DONE
+SDC0 / internal SD-NAND                DONE
+FAT16/FAT32 read-only support          DONE
+DPOSAPP.BIN loader                     DONE
+Cache-safe BLX handoff                 DONE
+Hardware timer                         DONE
+Boot target abstraction                DONE
+Touch boot menu                        FUNCTIONAL
+GT911 reliability cleanup              TODO
+Native DRAM initialization             TODO
+SRAM Stage 1                           TODO
+Autonomous SPI NOR boot                TODO
 ```
 
-## Memory map for the first boot manager
+The current Stage 2 is linked at `0x41000000` and is started after:
+
+```bash
+xfel ddr v3s
+```
+
+Applications are loaded and executed at `0x40000000`.
+
+---
+
+## Phase 0 - FEL, display and console
+
+Status: **complete**
+
+- [x] Establish reliable FEL entry and development workflow
+- [x] Initialize DRAM externally through XFEL
+- [x] Run custom code from `0x41000000`
+- [x] Initialize DE2 / TCON0 display path
+- [x] Configure 1024x600 RGB565 framebuffer
+- [x] Confirm double buffering
+- [x] Implement framebuffer cache cleaning
+- [x] Implement 8x8 bitmap font
+- [x] Implement framebuffer debug console
+- [x] Use the console for hardware bring-up diagnostics
+
+Known Stage 2 memory locations:
 
 ```text
-0x40000000  boot manager load/entry address during FEL development
-0x40020000  temporary stack top for small test payloads
-0x41000000  candidate load address for a custom application
-0x42000000  candidate staging/read buffer
-0x43000000  display framebuffer 0
-0x43200000  display framebuffer 1
+Stage 2:          0x41000000
+Current stack:    0x41020000
+Application load: 0x40000000
 ```
 
-Before this becomes a flashed SPL, the complete linker layout must be adjusted to execute initially from SRAM and only move to DRAM after DDR initialization. The current 0x40000000 payload assumes DDR has already been initialized by xfel or the original SPL.
+---
 
-## Development phases
+## Phase 1 - SPI NOR and original application chainload
 
-### Phase 0: keep current FEL workflow
+Status: **complete**
 
-- Enter FEL by holding SPI0 CS/PC2 low during power-on.
-- Run `xfel ddr v3s`.
-- Upload the boot-manager test payload to 0x40000000.
-- Execute it with xfel.
+- [x] Initialize SPI0
+- [x] Configure PC0..PC3
+- [x] Use SPI mode 0 with manual CS
+- [x] Read Winbond JEDEC ID
+- [x] Confirm JEDEC `EF 40 15`
+- [x] Implement read-only `0x03` NOR reads
+- [x] Implement chunked reads
+- [x] Reverse-engineer original eGON layout
+- [x] Validate `eGON.EXE` header
+- [x] Strip the 32-byte eGON header before execution
+- [x] Load EXE1 payload to `0x40000000`
+- [x] Successfully start EXE1 / USB Connect
+- [x] Load EXE2 payload to `0x40000000`
+- [x] Successfully start EXE2 / oscilloscope application
 
-This phase is for display, touch, SPI NOR and SDC2 development. It does not yet replace BT0.
-
-### Phase 1: SPI NOR original-app loader
-
-Implement a read-only SPI NOR driver and prove this sequence:
+Confirmed SPI NOR layout:
 
 ```text
-SPI NOR 0x000A8000 -> RAM staging/load area -> validate eGON.EXE -> jump
+0x000000  eGON.BT0   size 0x006800
+0x018000  eGON.EXE   size 0x024800
+0x058000  eGON.BMP   size 0x018A00
+0x0A8000  eGON.EXE   size 0x095800
 ```
 
-Important design point: the boot manager itself currently occupies 0x40000000, which is also the original application's load address. The loader must therefore either:
+Confirmed runtime payloads:
 
-- execute from SRAM while copying the application to 0x40000000; or
-- execute from another DRAM address and use a relocation-safe handoff stub.
+```text
+EXE1:
+    header:  0x018000
+    payload: 0x018020
+    size:    0x247E0
 
-The first FEL version should link the boot manager above the original app destination, for example at 0x41000000, after validating that it does not overlap framebuffers or the custom image.
+EXE2:
+    header:  0x0A8000
+    payload: 0x0A8020
+    size:    0x957E0
+```
 
-### Phase 2: SDC2 raw block driver
+Both execute from:
 
-Implement only enough SDC2/MMC protocol to:
+```text
+0x40000000
+```
 
-- reset the controller;
-- configure PC0-PC3 pin mux as required by SDC2;
-- identify the CSNP1GCR01-B0W;
-- read sector 0;
-- read an arbitrary 512-byte sector;
-- read a contiguous range.
+### Open EXE1 questions
 
-Do not introduce FAT until raw sector reads are reliable.
+- [ ] Determine the exact firmware-update behavior of EXE1
+- [ ] Determine under which conditions EXE1 writes SPI NOR
+- [ ] Compare duplicated USB / SD functionality between EXE1 and EXE2
+- [ ] Explain the Return button visible only when USB Connect is entered from EXE2
 
-### Phase 3: FAT/custom image loader
+Until these questions are answered, present EXE1 simply as **USB Connect**.
 
-After block reads work:
+---
 
-- mount the existing FAT volume read-only;
-- load `/boot/dpos.bin` or another fixed path;
-- validate a small custom image header;
-- clean caches;
-- disable display/touch if the custom image expects full hardware ownership;
-- jump to the custom entry point.
+## Phase 2 - SDC0 and internal SD-NAND
 
-### Phase 4: touchscreen boot menu
+Status: **complete**
 
-Use the proven display and GT911 modules. Provide:
+- [x] Identify SDC0 as the active controller
+- [x] Confirm PF0..PF5 routing
+- [x] Correct GPIO Port F offset to `0xB4`
+- [x] Correct GPIO function fields to four-bit masks
+- [x] Configure SDC0 clock/reset sequence
+- [x] Implement card initialization
+- [x] Implement CMD17 sector reads
+- [x] Implement PIO FIFO reads
+- [x] Read complete 512-byte sectors
+- [x] Confirm repeated reads
+- [x] Read and decode the MBR
 
-- Original firmware
-- Custom firmware
-- Diagnostics
+Known-good values include:
 
-Keep hardware FEL entry as the recovery mechanism until a software transition back to BROM FEL is proven on R11.
+```text
+PF_CFG0:      0x07222222
+PF_PUL0:      0x00000555
+CMD8:         0x00000155
+OCR:          0x80FF8000
+RINT:         0x0000000C
+FIFO words:   0x00000080
+```
 
-### Phase 5: native R11 BT0/SPL
+Keep the current path as the known-good baseline:
 
-Port the R11-specific startup path:
+```text
+CMD17
+PIO FIFO
+single-sector reads
+```
 
-1. SRAM startup and stack;
-2. clocks;
-3. original DDR2 timing and training sequence;
-4. optional MMU/cache setup;
-5. load the larger boot manager into DRAM;
-6. jump to it.
+Future optimization only after autonomous boot is stable:
 
-The primary source of truth for DDR must be the original DPOS350P BT0/SPL and the working V3s implementation used by xfel/U-Boot. awboot's DRAM code is useful structurally, but its T113/V851 register values are not assumed compatible.
+- [ ] Raise SDC0 clock
+- [ ] Test 4-bit bus mode
+- [ ] Implement CMD18 multi-block reads
+- [ ] Consider DMA
 
-## Immediate reversing targets
+---
 
-### Original SPL
+## Phase 3 - FAT and custom application loading
 
-Extract and document:
+Status: **complete**
 
-- CPU PLL and bus clock initialization;
-- DRAM controller/PHY register sequence;
-- memory size detection;
-- whether the SPL enables MMU/cache before loading the app;
-- SPI NOR read implementation;
-- exact handoff behavior into the main application.
+- [x] Parse MBR
+- [x] Confirm partition type `0x06`
+- [x] Confirm partition start at LBA 63
+- [x] Implement FAT16 mount
+- [x] Add FAT32-compatible read-only layout handling
+- [x] Automatically detect FAT16/FAT32
+- [x] Parse root-directory entries
+- [x] Match FAT 8.3 filenames
+- [x] Skip LFN/deleted/volume entries
+- [x] Follow FAT cluster chains
+- [x] Read arbitrary file sectors
+- [x] Locate `DPOSAPP.BIN`
+- [x] Load the complete application to DRAM
+- [x] Verify the first ARM word
+- [x] Successfully execute the custom application
 
-### Original main app
+Current custom application:
 
-Extract and document:
+```text
+Filename:       DPOSAPP.BIN
+Load address:   0x40000000
+Entry address:  0x40000000
+```
 
-- SDC2 base and reset/clock gates;
-- PC pin mux for SD-NAND;
-- card initialization sequence;
-- sector-read function;
-- FAT mounting/file read calls;
-- original app entry assumptions.
+Future custom image format:
 
-## First implementation milestone
+- [ ] Define image magic
+- [ ] Add format/version field
+- [ ] Add load address
+- [ ] Add entry address
+- [ ] Add payload size
+- [ ] Add CRC32
+- [ ] Add compatibility flags
 
-The first new executable should still rely on `xfel ddr v3s` and should be linked away from 0x40000000. It should:
+Keep raw binary support available for development.
 
-1. initialize display/touch;
-2. read the first 64 bytes of the original image from SPI NOR offset 0xA8000;
-3. show pass/fail on the display;
-4. read sector 0 from SD-NAND via SDC2;
-5. show pass/fail on the display;
-6. return to FEL where possible, or remain in a diagnostic loop.
+---
 
-This isolates storage work before attempting any destructive flash replacement.
+## Phase 4 - Common loader and handoff
+
+Status: **complete**
+
+- [x] Create common `loader_image_t`
+- [x] Separate probe/load/start phases
+- [x] Implement custom application loader
+- [x] Implement original-image loader
+- [x] Implement common application start path
+- [x] Clean D-cache for the loaded image
+- [x] Invalidate I-cache
+- [x] Invalidate branch predictor
+- [x] Execute DSB / ISB
+- [x] Disable IRQ/FIQ
+- [x] Transfer control using BLX
+- [x] Confirm DPOSAPP handoff
+- [x] Confirm EXE1 handoff
+- [x] Confirm EXE2 handoff
+
+Follow-up:
+
+- [ ] Implement a correct full D-cache clean-by-set/way helper
+- [ ] Decide whether applications may ever return
+- [ ] Add a controlled reset path after unexpected return
+- [ ] Add stricter image memory-range validation
+
+---
+
+## Phase 5 - Hardware timer
+
+Status: **complete**
+
+Timer 0 is configured from OSC24M as a free-running 32-bit down-counter.
+
+```text
+Base:       0x01C20C00
+Control:    0x01C20C10
+Interval:   0x01C20C14
+Current:    0x01C20C18
+Clock:      24 MHz
+```
+
+- [x] Implement `timer_init()`
+- [x] Implement `timer_ticks()`
+- [x] Implement `timer_get_ms()`
+- [x] Implement `timer_delay_ms()`
+- [x] Implement `timer_delay_us()`
+- [x] Implement short wrap-safe deadlines
+- [x] Replace inaccurate autoboot busy loop
+- [x] Use timer for touch polling intervals
+
+---
+
+## Phase 6 - Boot target model and boot menu
+
+Status: **functional**
+
+Current targets:
+
+```text
+CUSTOM APPLICATION
+ORIGINAL OSCILLOSCOPE
+USB CONNECT
+```
+
+- [x] Probe all boot targets before drawing the menu
+- [x] Track availability and probe errors
+- [x] Select a default boot target
+- [x] Hardware-timed autoboot
+- [x] Loading screen
+- [x] Error screen
+- [x] Touch target selection
+- [x] Immediate boot after valid target touch
+- [x] Cancel autoboot after a real touch outside targets
+- [x] Ignore release events for autoboot cancellation
+- [x] Preserve autoboot after touch initialization failure
+- [x] Preserve autoboot after runtime touch communication failure
+
+Current default priority:
+
+```text
+1. Custom Application
+2. Original Oscilloscope
+3. USB Connect
+```
+
+Current console UI touch regions:
+
+```text
+X: 20..1003
+
+Custom Application:      Y 48..129
+Original Oscilloscope:   Y 130..219
+USB Connect:             Y 220..279
+```
+
+Future UI polish:
+
+- [ ] Replace console rows with explicit graphical buttons
+- [ ] Add button outlines/backgrounds
+- [ ] Add touch-down feedback
+- [ ] Add progress indicator
+- [ ] Add diagnostics target/page
+- [ ] Add configurable default target
+- [ ] Add configurable autoboot timeout
+
+UI work is not required before Stage 1 development.
+
+---
+
+## GT911 touch follow-up
+
+Status: **functional, reliability investigation pending**
+
+Confirmed wiring:
+
+```text
+PE22  INT
+PE24  RESET
+PG6   SDA
+PG7   SCL
+```
+
+Current interface:
+
+```text
+GPIO bit-banged I2C
+7-bit address: 0x5D
+write:         0xBA
+read:          0xBB
+```
+
+Registers used:
+
+```text
+0x8140  Product ID
+0x814E  coordinate status
+0x8150  first touch point
+```
+
+Confirmed behavior:
+
+- [x] Product ID reads successfully
+- [x] DATA_READY events work
+- [x] X/Y coordinates work
+- [x] Menu selection works
+- [x] Release events are handled
+- [x] Release events do not overwrite last coordinates with `0/0`
+- [x] Release events do not cancel autoboot
+- [x] Polling is limited to approximately 10 ms
+
+Observed issue:
+
+```text
+Some physical touches are occasionally missed.
+```
+
+Investigation tasks:
+
+- [ ] Determine the most reliable GT911 reset/address-selection timing
+- [ ] Preserve the known-good rough legacy timing as a reference
+- [ ] Compare the working timing with GT911 documentation
+- [ ] Verify PE22 is a truly floating input during normal operation
+- [ ] Verify PE22 pull-up/pull-down configuration
+- [ ] Verify PG6/PG7 pull configuration
+- [ ] Measure bit-banged I2C frequency
+- [ ] Test 5 ms / 10 ms / 20 ms polling intervals
+- [ ] Consider INT-driven polling instead of continuous status polling
+- [ ] Add press/hold/release state tracking
+- [ ] Add missed-event and I2C-error counters
+- [ ] Verify all four display corners
+- [ ] Confirm whether coordinate swap/inversion is required
+
+Do not consider the touch driver final until target selection is reliable over
+many consecutive boots.
+
+---
+
+## Compiler / freestanding constraints
+
+Known-good build requires:
+
+```text
+-mno-unaligned-access
+```
+
+A confirmed GCC `-O2` issue generated an unaligned ARM `LDRH` from a local byte
+buffer and caused SPI NOR JEDEC reads to freeze.
+
+The project is freestanding and does not link libc.
+
+Watch for compiler-generated runtime helpers, especially:
+
+```text
+memcpy
+memset
+division helpers
+```
+
+Small structures should currently be copied field by field rather than with a
+structure assignment that may be lowered to `memcpy()`.
+
+Useful build check:
+
+```bash
+arm-none-eabi-nm build/dpos_display_spl_clone.elf | grep ' U '
+```
+
+Future tooling:
+
+- [ ] Fail builds with unexpected unresolved runtime helpers
+- [ ] Add a small freestanding `memcpy()` if genuinely useful
+- [ ] Add a small freestanding `memset()` if genuinely useful
+- [ ] Add automated image-size checks
+
+---
+
+## Next major phase - SRAM Stage 1
+
+Status: **not started**
+
+This is the next major low-level milestone.
+
+Goal:
+
+```text
+BootROM
+   |
+   +-- SRAM Stage 1
+         |
+         +-- basic CPU setup
+         +-- clock initialization
+         +-- DDR2 initialization
+         +-- DRAM test
+         +-- SPI NOR initialization
+         +-- load Stage 2 to 0x41000000
+         +-- verify Stage 2
+         +-- jump to Stage 2
+```
+
+Stage 1 requirements:
+
+- [ ] Run entirely from internal SRAM
+- [ ] Use an SRAM-resident stack
+- [ ] Create a dedicated SRAM linker script
+- [ ] Clear SRAM BSS
+- [ ] Avoid framebuffer usage before DRAM init
+- [ ] Avoid SD-NAND/FAT in Stage 1
+- [ ] Keep buffers small
+- [ ] Keep code within BootROM/SRAM limits
+
+### Native clock / DRAM initialization
+
+Primary reference:
+
+```text
+XFEL V3s/S3 DDR payload
+```
+
+The XFEL implementation is especially valuable because:
+
+```bash
+xfel ddr v3s
+```
+
+already initializes DRAM successfully on this exact DPOS350P hardware.
+
+Secondary references:
+
+```text
+mainline U-Boot V3s DDR2 initialization
+original FNIRSI eGON.BT0 / SPL
+```
+
+Recommended bring-up order:
+
+1. Port the XFEL clock/DRAM code into an SRAM-only test payload.
+2. Execute the payload through FEL without running `xfel ddr v3s` first.
+3. Write/read test patterns in DRAM.
+4. Confirm Stage 2 load region at `0x41000000`.
+5. Add minimal SPI NOR reading.
+6. Load the existing Stage 2 from SPI NOR.
+7. Jump to Stage 2.
+8. Only then consider persistent installation.
+
+### DRAM test patterns
+
+At minimum:
+
+```text
+0x00000000
+0xFFFFFFFF
+0xAAAAAAAA
+0x55555555
+address pattern
+inverted address pattern
+```
+
+Test multiple regions while avoiding the active SRAM Stage 1 code/stack.
+
+---
+
+## Autonomous SPI NOR boot
+
+Status: **not started**
+
+After Stage 1 works reliably through FEL:
+
+- [ ] Determine BootROM SPI NOR loading behavior
+- [ ] Determine the required boot header
+- [ ] Determine checksum requirements
+- [ ] Determine maximum initial SRAM image size
+- [ ] Define persistent Stage 1 location
+- [ ] Define persistent Stage 2 location
+- [ ] Preserve EXE1 and EXE2 regions
+- [ ] Add Stage 2 image magic/size/CRC
+- [ ] Add safe fallback behavior
+- [ ] Verify complete recovery procedure
+- [ ] Install Stage 1 only after all previous checks pass
+
+Do not add general SPI NOR erase/write support to normal Stage 2 operation until
+the persistent layout and recovery process are documented and tested.
+
+---
+
+## Recovery strategy
+
+Already confirmed:
+
+- [x] FEL access
+- [x] SPI NOR read access
+- [x] Original EXE1 remains bootable
+- [x] Original EXE2 remains bootable
+
+Still required before persistent installation:
+
+- [ ] Document exact FEL recovery wiring/procedure
+- [ ] Keep a verified full SPI NOR backup
+- [ ] Add host-side image verification
+- [ ] Verify Stage 1 entirely from SRAM first
+- [ ] Verify native DRAM initialization
+- [ ] Verify Stage 1 -> Stage 2 loading
+- [ ] Document rollback procedure
+
+---
+
+## Future storage improvements
+
+Only after autonomous boot is stable:
+
+- [ ] Generic block-device abstraction
+- [ ] Separate FAT from direct SDC0 dependency
+- [ ] Higher SDC0 clock
+- [ ] 4-bit bus mode
+- [ ] CMD18 multi-block reads
+- [ ] DMA
+- [ ] Optional filesystem cache
+- [ ] Long filename support if ever required
+- [ ] Subdirectory support if ever required
+
+The current CMD17 PIO implementation remains the known-good baseline.
+
+---
+
+## Future loader improvements
+
+- [ ] Define final custom image header
+- [ ] Magic and image version
+- [ ] Explicit load address
+- [ ] Explicit entry address
+- [ ] Payload size validation
+- [ ] CRC32
+- [ ] Boot-manager compatibility version
+- [ ] Validate all image ranges against the memory map
+- [ ] Prevent overlap with Stage 2 and framebuffer memory
+- [ ] Define a boot-information structure for custom applications
+- [ ] Optionally pass framebuffer/display information to custom applications
+- [ ] Decide how unexpected application return is handled
+
+---
+
+## Milestones
+
+```text
+A  Display + console                     COMPLETE
+B  SPI NOR read path                     COMPLETE
+C  Original EXE chainload                COMPLETE
+D  SD-NAND sector reads                  COMPLETE
+E  FAT16/FAT32                           COMPLETE
+F  DPOSAPP.BIN loader                    COMPLETE
+G  Common cache-safe handoff             COMPLETE
+H  Hardware timer                        COMPLETE
+I  Touch boot menu                       FUNCTIONAL
+J  GT911 reliability cleanup             PENDING
+K  Native DRAM initialization            NOT STARTED
+L  SRAM Stage 1                          NOT STARTED
+M  Stage 1 -> Stage 2 SPI NOR boot       NOT STARTED
+N  Autonomous power-on boot              NOT STARTED
+O  Recovery-safe persistent install      NOT STARTED
+```
+
+---
+
+## Known-good baseline
+
+Preserve the following behavior while continuing development:
+
+```text
+-mno-unaligned-access
+Winbond JEDEC EF 40 15
+read-only SPI NOR
+GPIO Port F offset 0xB4
+4-bit GPIO function fields
+SDC0 CMD17 PIO reads
+FAT16/FAT32 read-only support
+DPOSAPP.BIN loading
+EXE1 payload skip +0x20
+EXE2 payload skip +0x20
+load/entry address 0x40000000
+D-cache clean + I-cache invalidate
+BLX handoff
+hardware Timer 0
+GT911 touch menu
+safe autoboot fallback
+```
+
+Current known-good Stage 2 tag:
+
+```text
+touch-boot-menu-ok
+```
+
+Touch reliability remains an explicit follow-up item and should not be silently
+considered solved by this tag.
+
