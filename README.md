@@ -49,7 +49,7 @@ Known relevant hardware:
 SoC:       Allwinner V3s / R11, ARM Cortex-A7
 DRAM:      64 MiB DDR2, base 0x40000000
 SPI NOR:   Winbond W25Q16JV, 2 MiB, JEDEC EF 40 15
-Display:   800x480 RGB
+Display:   1024x600 RGB565
 Touch:     Goodix GT911
 FPGA:      GOWIN
 SD-NAND:   1 GiB, FAT16 on the tested unit
