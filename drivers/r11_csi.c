@@ -9,6 +9,8 @@
 #define PE_CFG1        (PIO_BASE + 0x94U)
 #define PE_DATA        (PIO_BASE + 0xA0U)
 
+#define CSI_REG_IF_CFG (R11_CSI_BASE + 0x04U)
+#define CSI_REG_HSIZE  (R11_CSI_BASE + 0x44U)
 #define CSI_REG_MODE   (R11_CSI_BASE + 0x08U)
 #define CSI_REG_BUF0   (R11_CSI_BASE + 0x50U)
 #define CSI_REG_IRQ_EN (R11_CSI_BASE + 0x70U)
@@ -126,6 +128,8 @@ int r11_csi_configure_no_capture(struct r11_csi_config_result *r)
     r->irq_expected = R11_CSI_DONE;
 
     mmio_write32(CSI_REG_MODE, 0U);
+    mmio_write32(CSI_REG_IF_CFG, 0x00060000U);
+    mmio_write32(CSI_REG_HSIZE,  0x00000800U);
     mmio_write32(CSI_REG_GEO0, r->geo0_expected);
     mmio_write32(CSI_REG_GEO1, r->geo1_expected);
     mmio_write32(CSI_REG_GEO2, r->geo2_expected);
@@ -200,4 +204,31 @@ int r11_csi_wait_done(uint32_t timeout_ms, uint32_t *last_status)
 
     *last_status = status;
     return 0;
+}
+
+
+int r11_csi_wait_done_bounded(uint32_t iterations, uint32_t *last_status)
+{
+    uint32_t status = 0U;
+    while (iterations-- != 0U) {
+        status = r11_csi_status();
+        if ((status & R11_CSI_DONE) != 0U) {
+            *last_status = status;
+            return 1;
+        }
+    }
+    *last_status = status;
+    return 0;
+}
+
+void r11_csi_timer0_gate(int enable)
+{
+    const uintptr_t timer0_ctrl = 0x01C20C10U;
+    uint32_t value = mmio_read32(timer0_ctrl);
+    if (enable)
+        value |= 1U;
+    else
+        value &= ~1U;
+    mmio_write32(timer0_ctrl, value);
+    cache_dsb();
 }

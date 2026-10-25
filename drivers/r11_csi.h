@@ -69,5 +69,8 @@ void r11_csi_capture_enable(void);
 void r11_csi_capture_disable(void);
 uint32_t r11_csi_mode(void);
 int r11_csi_wait_done(uint32_t timeout_ms, uint32_t *last_status);
+/* Bounded polling for the stock sequence while Timer0 is temporarily stopped. */
+int r11_csi_wait_done_bounded(uint32_t iterations, uint32_t *last_status);
+void r11_csi_timer0_gate(int enable);
 
 #endif

@@ -213,6 +213,218 @@ void fpga_select_bank0(void)
 }
 
 
+
+void fpga_set_stream_quantity(uint16_t quantity)
+{
+    control_bus_init();
+    /* Exact tail of stock 0x400405E0: FPGA selector 0x22, big-endian u16. */
+    fpga_select_command(0x22U);
+    fpga_settle_delay();
+    fpga_write_payload((uint8_t)(quantity >> 8));
+    fpga_settle_delay();
+    fpga_write_payload((uint8_t)quantity);
+    fpga_settle_delay();
+}
+
+void fpga_prepare_csi_bank0_position(uint16_t position)
+{
+    control_bus_init();
+
+    /* Exact 0x4003F988 encoding: selector 0x20, big-endian u16,
+     * then selector 0x21 with a 0 -> 1 apply pulse. */
+    fpga_select_command(0x20U);
+    fpga_settle_delay();
+    fpga_write_payload((uint8_t)(position >> 8));
+    fpga_settle_delay();
+    fpga_write_payload((uint8_t)position);
+    fpga_settle_delay();
+    fpga_select_command(0x21U);
+    fpga_settle_delay();
+    fpga_write_payload(0x00U);
+    fpga_settle_delay();
+    fpga_select_command(0x21U);
+    fpga_settle_delay();
+    fpga_write_payload(0x01U);
+    fpga_settle_delay();
+
+    /* Exact per-capture selector from 0x4003FA94: FPGA 0x1F <- bank 0. */
+    fpga_select_command(0x1FU);
+    fpga_settle_delay();
+    fpga_write_payload(0x00U);
+    fpga_settle_delay();
+}
+
+void fpga_prepare_csi_bank0(void)
+{
+    fpga_prepare_csi_bank0_position(0U);
+}
+
+void fpga_bus_enter_csi_mode(void)
+{
+    uint32_t cfg = PE_CFG0;
+
+    /* Stock 0x40065EF8: PE0, PE2, PE3 and PE8..PE15 -> function 2. */
+    cfg &= ~((0xFU << 0) | (0xFU << 8) | (0xFU << 12));
+    cfg |=  ((2U << 0) | (2U << 8) | (2U << 12));
+    PE_CFG0 = cfg;
+    PE_CFG1 = 0x22222222U;
+    barrier();
+}
+
+void fpga_bus_leave_csi_mode(void)
+{
+    uint32_t cfg = PE_CFG0;
+
+    /* Stock 0x40049110: PE0..PE3 back to GPIO, PE0 high, PE1 low. */
+    cfg &= ~0x0000FFFFU;
+    PE_CFG0 = cfg;
+    pe_set(0U);
+    pe_clear(1U);
+    data_bus_input();
+    barrier();
+}
+
+void fpga_capture_gate(int high)
+{
+    /* PE1 remains GPIO while the sample pins belong to CSI. */
+    if (high)
+        pe_set(1U);
+    else
+        pe_clear(1U);
+}
+
+void fpga_acq_ready_probe(uint8_t mode_byte, uint32_t max_polls,
+                          struct fpga_acq_ready_result *result)
+{
+    uint32_t polls;
+    uint8_t status = 0U;
+
+    result->polls = 0U;
+    result->final_status = 0U;
+    result->mode_byte = mode_byte;
+    result->ready = 0;
+
+    control_bus_init();
+
+    /* Stock higher-level selector for the first acquisition block/lane. */
+    fpga_select_command(0x15U);
+    fpga_settle_delay();
+    fpga_write_payload(0x00U);
+    fpga_settle_delay();
+
+    /* Exact 0x4003FA10 acquisition prepare/start sequence. */
+    fpga_select_command(0x0FU);
+    fpga_write_payload(0x00U);
+    fpga_select_command(0x01U);
+    fpga_write_payload(0x01U);
+    fpga_select_command(0x01U);
+    fpga_write_payload(0x00U);
+    fpga_select_command(0x11U);
+    fpga_write_payload(0x00U);
+    fpga_select_command(0x11U);
+    fpga_write_payload(0x01U);
+    fpga_select_command(0x02U);
+    fpga_write_payload(mode_byte);
+    fpga_select_command(0x0FU);
+    fpga_write_payload(0x01U);
+    fpga_settle_delay();
+
+    /* Exact readiness source used by 0x4003FCC0: FPGA 0x0A bit 0. */
+    for (polls = 0U; polls < max_polls; ++polls) {
+        fpga_select_command(0x0AU);
+        status = fpga_read_byte();
+        if ((status & 1U) != 0U) {
+            result->polls = polls + 1U;
+            result->final_status = status;
+            result->ready = 1;
+            fpga_bus_safe_idle();
+            return;
+        }
+    }
+
+    result->polls = max_polls;
+    result->final_status = status;
+    fpga_bus_safe_idle();
+}
+
+void fpga_acq_position_probe(uint8_t mode_byte, uint32_t max_polls,
+                             struct fpga_acq_position_result *result)
+{
+    uint8_t high;
+    uint8_t low;
+
+    result->valid_status = 0U;
+    result->position = 0U;
+    result->valid = 0;
+
+    fpga_acq_ready_probe(mode_byte, max_polls, &result->ready);
+    if (!result->ready.ready)
+        return;
+
+    control_bus_init();
+
+    /* Exact stock 0x40063770 validity read. */
+    fpga_select_command(0x18U);
+    result->valid_status = fpga_read_byte();
+    if ((result->valid_status & 1U) == 0U) {
+        fpga_bus_safe_idle();
+        return;
+    }
+
+    /* Exact stock 0x400637B4 path: selector 0x14, then big-endian u16. */
+    fpga_select_command(0x14U);
+    high = fpga_read_byte();
+    low = fpga_read_byte();
+    result->position = (uint16_t)(((uint16_t)high << 8) | low);
+    result->valid = 1;
+    fpga_bus_safe_idle();
+}
+
+void fpga_stream_activity_probe(uint32_t samples,
+                                struct fpga_stream_activity_result *result)
+{
+    const uint32_t sample_mask = (1U << 0) | (1U << 2) | (1U << 3) |
+                                 PE_DATA_MASK;
+    uint32_t cfg;
+    uint32_t previous;
+    uint32_t current;
+    uint32_t i;
+
+    result->first = 0U;
+    result->last = 0U;
+    result->changed_mask = 0U;
+    result->high_mask = 0U;
+    result->low_mask = sample_mask;
+    result->samples = samples;
+
+    /* PE0/2/3 and PE8..15 become GPIO inputs. PE1 remains GPIO output
+     * because stock uses PE1 as the active-high stream gate. */
+    cfg = PE_CFG0;
+    cfg &= ~0x0000FFFFU;
+    cfg |= (1U << 4); /* PE1 function 1 = GPIO output. */
+    PE_CFG0 = cfg;
+    PE_CFG1 = 0x00000000U;
+    barrier();
+
+    pe_set(1U);
+    previous = PE_DATA & sample_mask;
+    result->first = previous;
+    result->high_mask = previous;
+    result->low_mask = sample_mask & ~previous;
+
+    for (i = 0U; i < samples; ++i) {
+        current = PE_DATA & sample_mask;
+        result->changed_mask |= previous ^ current;
+        result->high_mask |= current;
+        result->low_mask |= sample_mask & ~current;
+        previous = current;
+    }
+
+    result->last = previous;
+    pe_clear(1U);
+    fpga_bus_leave_csi_mode();
+}
+
 void fpga_diag_read_id_baseline(struct fpga_diag_result *result)
 {
     unsigned i;

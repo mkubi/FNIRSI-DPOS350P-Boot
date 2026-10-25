@@ -15,7 +15,7 @@ INCLUDES := \
     -I$(ROOT)/drivers \
     -I$(ROOT)/ui
 
-CSI_DIAG_STAGE ?= 9
+CSI_DIAG_STAGE ?= 19
 
 CFLAGS := \
     -O2 \
@@ -44,6 +44,7 @@ SOURCES_C := \
     $(ROOT)/drivers/gpio.c \
     $(ROOT)/drivers/display.c \
     $(ROOT)/drivers/fpga_bus_ro.c \
+    $(ROOT)/drivers/ms5351_stock.c \
     $(ROOT)/drivers/r11_csi.c \
     $(ROOT)/ui/font8x8.c \
     $(ROOT)/ui/console.c

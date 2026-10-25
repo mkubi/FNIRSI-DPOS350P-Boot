@@ -1,11 +1,13 @@
 #include <stdint.h>
 #include "../../drivers/fpga_bus_ro.h"
 #include "../../drivers/r11_csi.h"
+#include "../../drivers/ms5351_stock.h"
 #include "../../arch/r11/cache.h"
 
 #define TEST_BASE       0x42000000U
 #define GUARD_SIZE      0x00001000U
-#define CAPTURE_SIZE    0x00100000U
+#define CAPTURE_SIZE    0x00002134U
+#define CSI_POLL_ITERATIONS 24000000U
 #define LEFT_GUARD      ((volatile uint8_t *)TEST_BASE)
 #define CAPTURE_BUFFER  ((volatile uint8_t *)(TEST_BASE + GUARD_SIZE))
 #define RIGHT_GUARD     ((volatile uint8_t *)(TEST_BASE + GUARD_SIZE + CAPTURE_SIZE))
@@ -14,7 +16,8 @@
 #define RIGHT_SENTINEL  0xA5U
 
 void diag_ui_init(void);
-void diag_ui_capture_screen(int fpga_ok, int clock_ok, int config_ok,
+void diag_ui_capture_screen(int fpga_ok, int ready, uint32_t ready_status,
+                            uint32_t ready_polls, int clock_ok, int config_ok,
                             uint32_t buffer_reg, uint32_t status_before,
                             int done, uint32_t status_after,
                             uint32_t mode_after, int left_guard_ok,
@@ -50,7 +53,8 @@ static uint32_t load_u32(volatile const uint8_t *p)
 void csi_stage3b_main(void)
 {
     struct fpga_diag_result fpga;
-    struct fpga_capture_arm_probe_result arm;
+    struct ms5351_stock_result clock;
+    struct fpga_acq_position_result position;
     struct r11_csi_init_result init;
     struct r11_csi_config_result config;
     uint32_t status_before;
@@ -65,11 +69,27 @@ void csi_stage3b_main(void)
     int done;
 
     diag_ui_init();
-    fpga_diag_read_id(&fpga);
-    fpga_select_bank0();
-    fpga_capture_arm_probe(&arm);
+    ms5351_stock_init_95m_10m(&clock);
+    /* The stock-decoded selector is known not to reproduce the ID in the
+     * standalone startup state. Keep the HW-confirmed baseline selector for
+     * the presence check; the capture commands below still use stock primitives. */
+    fpga_diag_read_id_baseline(&fpga);
+    if (!clock.completed)
+        fpga.present = 0;
 
-    init_ok = r11_csi_prepare_no_capture((uintptr_t)CAPTURE_BUFFER, &init);
+    /* Stage 5 HW-confirmed upstream preparation.  Do not touch CSI unless
+     * FPGA 0x0A bit 0 reports ready within the stock 2500-poll window. */
+    fpga_acq_position_probe(4U, 2500U, &position);
+    if (position.ready.ready && position.valid) {
+        /* RAW_BANK_SIZE is 0x2134 bytes.  Stock 0x400405E0 programs 0x22
+         * immediately before the per-bank capture loop, using the same
+         * big-endian 16-bit command convention. */
+        fpga_set_stream_quantity((uint16_t)CAPTURE_SIZE);
+        fpga_prepare_csi_bank0_position(position.position);
+    }
+
+    init_ok = (position.ready.ready && position.valid) ?
+        r11_csi_prepare_no_capture((uintptr_t)CAPTURE_BUFFER, &init) : 0;
     config_ok = init_ok ? r11_csi_configure_no_capture(&config) : 0;
 
     fill(LEFT_GUARD, GUARD_SIZE, LEFT_SENTINEL);
@@ -78,12 +98,26 @@ void csi_stage3b_main(void)
     if (cache_dcache_enabled())
         cache_clean_range(TEST_BASE, GUARD_SIZE + CAPTURE_SIZE + GUARD_SIZE);
 
-    status_before = r11_csi_status();
-    r11_csi_ack(0xFFU);
-    r11_csi_capture_enable();
-    done = r11_csi_wait_done(100U, &status_after);
-    r11_csi_capture_disable();
-    mode_after = r11_csi_mode();
+    status_before = (position.ready.ready && position.valid) ? r11_csi_status() : 0U;
+    status_after = 0U;
+    done = 0;
+
+    if (position.ready.ready && position.valid && init_ok && config_ok) {
+        r11_csi_ack(R11_CSI_DONE);
+
+        /* Exact stock per-bank transition around 0x40040638. */
+        r11_csi_timer0_gate(0);
+        r11_csi_capture_enable();
+        fpga_capture_gate(1);
+        done = r11_csi_wait_done_bounded(CSI_POLL_ITERATIONS,
+                                         &status_after);
+        fpga_capture_gate(0);
+        r11_csi_timer0_gate(1);
+        r11_csi_ack(R11_CSI_DONE);
+        r11_csi_capture_disable();
+        fpga_bus_leave_csi_mode();
+    }
+    mode_after = position.ready.ready ? r11_csi_mode() : 0U;
 
     if (cache_dcache_enabled())
         cache_invalidate_range(TEST_BASE,
@@ -98,8 +132,11 @@ void csi_stage3b_main(void)
         }
     }
 
-    diag_ui_capture_screen(fpga.present, init_ok, config_ok,
-                           r11_csi_buffer0(), status_before,
+    diag_ui_capture_screen(fpga.present,
+                           position.ready.ready && position.valid,
+                           position.position, position.ready.polls,
+                           init_ok, config_ok,
+                           position.ready.ready ? r11_csi_buffer0() : 0U, status_before,
                            done, status_after, mode_after,
                            check(LEFT_GUARD, GUARD_SIZE, LEFT_SENTINEL),
                            check(RIGHT_GUARD, GUARD_SIZE, RIGHT_SENTINEL),
