@@ -7,6 +7,8 @@
 #define DPOSDBG_EVENT_FPGA_SELECTOR 0x00001000U
 #define DPOSDBG_EVENT_FPGA_WRITE    0x00001001U
 #define DPOSDBG_EVENT_FPGA_READ     0x00001002U
+#define DPOSDBG_EVENT_CSI_DESTINATION 0x00002000U
+#define JOB_FLAG_CSI_DESTINATION   (1U << 13)
 
 #define JOB_FLAG_HAVE_69          (1U << 0)
 #define JOB_FLAG_HAVE_6A          (1U << 1)
@@ -316,6 +318,28 @@ static void handle_read(uint32_t byte, uint32_t call_site)
 void dposdbg_trace_primitive(uint32_t event, uint32_t value,
                              uint32_t call_site)
 {
+    if (event == DPOSDBG_EVENT_CSI_DESTINATION) {
+        uint32_t index = dposdbg_trace.write_index;
+        uint32_t slot = index % DPOSDBG_TRACE_CAPACITY;
+        dposdbg_job_record_t *record = &dposdbg_trace.records[slot];
+        if (index >= DPOSDBG_TRACE_CAPACITY)
+            dposdbg_trace.wrapped = 1U;
+        clear_current_job();
+        current_job.sequence = index;
+        current_job.tick_ms = read_u32(STOCK_TOUCH_TICK);
+        current_job.run_count = read_u32(STOCK_SYS_RUN_COUNT);
+        current_job.state_pack = read_u8(STOCK_RUN_STOP) & 0xFFU;
+        current_job.flags = JOB_FLAG_CSI_DESTINATION;
+        current_job.value_6b = value;
+        current_job.begin_call_site = call_site;
+        current_job.last_call_site = call_site;
+        current_job.primitive_count = 1U;
+        *record = current_job;
+        dposdbg_trace.write_index = index + 1U;
+        clear_current_job();
+        job_active = 0U;
+        return;
+    }
     if (event == DPOSDBG_EVENT_FPGA_SELECTOR)
         handle_selector(value, call_site);
     else if (event == DPOSDBG_EVENT_FPGA_WRITE)

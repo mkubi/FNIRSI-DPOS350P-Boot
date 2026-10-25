@@ -64,6 +64,9 @@ static const dposdbg_call_patch_t primitive_patches[] = {
     { 0x4004A09CU, 0xEBFFFC45U, DPOSDBG_READ_VENEER },
     { 0x4004A0A4U, 0xEBFFFC43U, DPOSDBG_READ_VENEER },
     { 0x4004A148U, 0xEBFFFC4BU, DPOSDBG_SELECTOR_VENEER },
+
+    /* v6-minimal: capture-path CSI destination call. */
+    { 0x40040660U, 0xEB009672U, DPOSDBG_SELECTOR_VENEER },
 };
 
 typedef struct {

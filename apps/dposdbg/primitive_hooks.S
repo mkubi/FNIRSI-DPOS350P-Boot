@@ -5,6 +5,9 @@
 .equ STOCK_FPGA_READ,     0x400491B8
 .equ STOCK_FPGA_WRITE,    0x40049214
 .equ STOCK_FPGA_SELECTOR, 0x4004927C
+.equ STOCK_CSI_DESTINATION, 0x40066030
+.equ SITE_CSI_DESTINATION,  0x40040660
+.equ EVENT_CSI_DESTINATION, 0x00002000
 
 .section .text.primitive_hooks, "ax", %progbits
 .extern dposdbg_trace_primitive
@@ -12,6 +15,10 @@
 .global dposdbg_fpga_selector_wrapper
 .type dposdbg_fpga_selector_wrapper, %function
 dposdbg_fpga_selector_wrapper:
+    sub     r12, lr, #4
+    ldr     r3, =SITE_CSI_DESTINATION
+    cmp     r12, r3
+    beq     .Ltrace_csi_destination
     push    {r0-r3, r12, lr}
     mov     r1, r0
     sub     r2, lr, #4
@@ -24,6 +31,14 @@ dposdbg_fpga_selector_wrapper:
     str     r0, [sp]
     pop     {r0-r3, r12, lr}
     bx      lr
+.Ltrace_csi_destination:
+    push    {r0-r3, r12, lr}
+    mov     r1, r0
+    sub     r2, lr, #4
+    movw    r0, #EVENT_CSI_DESTINATION
+    bl      dposdbg_trace_primitive
+    pop     {r0-r3, r12, lr}
+    b       STOCK_CSI_DESTINATION
 .size dposdbg_fpga_selector_wrapper, . - dposdbg_fpga_selector_wrapper
 
 .global dposdbg_fpga_write_wrapper
