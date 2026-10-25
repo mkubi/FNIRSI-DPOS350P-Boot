@@ -66,6 +66,20 @@ static const dposdbg_call_patch_t primitive_patches[] = {
     { 0x4004A148U, 0xEBFFFC4BU, DPOSDBG_SELECTOR_VENEER },
 };
 
+typedef struct {
+    uint32_t site;
+    uint32_t expected;
+    uint32_t veneer;
+} dposdbg_tail_patch_t;
+
+static const dposdbg_tail_patch_t tail_patches[] = {
+    { 0x40049F78U, 0xEAFFFCA5U, DPOSDBG_WRITE_VENEER },
+    { 0x40049FB4U, 0xEAFFFC96U, DPOSDBG_WRITE_VENEER },
+    { 0x40049FD8U, 0xEAFFFC8DU, DPOSDBG_WRITE_VENEER },
+    { 0x4004A01CU, 0xEAFFFC7CU, DPOSDBG_WRITE_VENEER },
+    { 0x4004A07CU, 0xEAFFFC4DU, DPOSDBG_READ_VENEER },
+};
+
 static int branch_reachable(uint32_t site, uint32_t target)
 {
     int32_t displacement;
@@ -188,6 +202,14 @@ int dposdbg_load_and_patch(void)
                 return LOADER_ERR_VERIFY;
         }
 
+        for (i = 0U;
+             i < sizeof(tail_patches) / sizeof(tail_patches[0]); ++i) {
+            volatile uint32_t *tail_word =
+                (volatile uint32_t *)(uintptr_t)tail_patches[i].site;
+            if (*tail_word != tail_patches[i].expected)
+                return LOADER_ERR_VERIFY;
+        }
+
         /* ARM veneers: LDR pc, [pc, #-4], followed by absolute targets. */
         veneer[0] = 0xE51FF004U;
         veneer[1] = header->screenshot_hook;
@@ -213,6 +235,19 @@ int dposdbg_load_and_patch(void)
                                          primitive_patches[i].veneer);
             cache_clean_range(primitive_patches[i].site,
                               sizeof(*call_word));
+        }
+
+        /*
+         * Preserve tail-call semantics: stock B sites remain B sites. The
+         * existing wrappers return through the LR inherited from the caller.
+         */
+        for (i = 0U;
+             i < sizeof(tail_patches) / sizeof(tail_patches[0]); ++i) {
+            volatile uint32_t *tail_word =
+                (volatile uint32_t *)(uintptr_t)tail_patches[i].site;
+            *tail_word = arm_branch(tail_patches[i].site,
+                                    tail_patches[i].veneer);
+            cache_clean_range(tail_patches[i].site, sizeof(*tail_word));
         }
 
         cache_clean_range(DPOSDBG_LOAD_ADDRESS, header->image_size);

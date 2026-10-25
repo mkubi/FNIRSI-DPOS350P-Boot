@@ -1,8 +1,8 @@
 #include <stdint.h>
 
 #define DPOSDBG_TRACE_MAGIC       0x30435254U /* "TRC0" */
-#define DPOSDBG_TRACE_VERSION     3U
-#define DPOSDBG_TRACE_CAPACITY    1024U
+#define DPOSDBG_TRACE_VERSION     5U
+#define DPOSDBG_TRACE_CAPACITY    768U
 
 #define DPOSDBG_EVENT_FPGA_SELECTOR 0x00001000U
 #define DPOSDBG_EVENT_FPGA_WRITE    0x00001001U
@@ -20,6 +20,7 @@
 #define JOB_FLAG_TRUNCATED        (1U << 9)
 #define JOB_FLAG_OVERFLOW         (1U << 10)
 #define JOB_FLAG_UNEXPECTED       (1U << 11)
+#define JOB_FLAG_INCOMPLETE_PAYLOAD (1U << 12)
 
 #define STOCK_F_OPEN              0x40059B8CU
 #define STOCK_F_WRITE             0x4005A1D4U
@@ -46,6 +47,10 @@ typedef struct {
     uint32_t result_66;
     uint32_t status_pack;
     uint32_t counts_pack;
+    uint32_t begin_call_site;
+    uint32_t last_call_site;
+    uint32_t selector_count;
+    uint32_t primitive_count;
 } dposdbg_job_record_t;
 
 typedef struct {
@@ -75,7 +80,7 @@ dposdbg_trace_t dposdbg_trace = {
     0U,
     0U,
     (uint32_t)sizeof(dposdbg_job_record_t),
-    {{0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U}}
+    {{0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U}}
 };
 
 /* Keep mutable state in the loadable image, not NOLOAD BSS. */
@@ -88,7 +93,8 @@ static const char trace_path[] = "/DPOSDBG.TRC";
 
 __attribute__((section(".data"), used, aligned(4)))
 static dposdbg_job_record_t current_job = {
-    0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U
+    0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U,
+    0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U
 };
 
 __attribute__((section(".data"), used, aligned(4)))
@@ -135,6 +141,10 @@ static void clear_current_job(void)
     current_job.result_66 = 0U;
     current_job.status_pack = 0U;
     current_job.counts_pack = 0U;
+    current_job.begin_call_site = 0U;
+    current_job.last_call_site = 0U;
+    current_job.selector_count = 0U;
+    current_job.primitive_count = 0U;
 }
 
 static void commit_current_job(uint32_t extra_flags)
@@ -153,8 +163,12 @@ static void commit_current_job(uint32_t extra_flags)
                               JOB_FLAG_HAVE_67 | JOB_FLAG_HAVE_66)) ==
         (JOB_FLAG_HAVE_69 | JOB_FLAG_HAVE_6A | JOB_FLAG_HAVE_6B |
          JOB_FLAG_STARTED | JOB_FLAG_HAVE_64 | JOB_FLAG_POLL65_DONE |
-         JOB_FLAG_HAVE_67 | JOB_FLAG_HAVE_66)) {
+         JOB_FLAG_HAVE_67 | JOB_FLAG_HAVE_66) &&
+        count_get(0U) == 2U && count_get(8U) == 1U &&
+        count_get(16U) == 4U && count_get(24U) == 4U) {
         current_job.flags |= JOB_FLAG_COMPLETE;
+    } else {
+        current_job.flags |= JOB_FLAG_INCOMPLETE_PAYLOAD;
     }
 
     index = dposdbg_trace.write_index;
@@ -181,7 +195,7 @@ static uint32_t read_u8(uint32_t address)
     return *(volatile uint8_t *)(uintptr_t)address;
 }
 
-static void begin_job(void)
+static void begin_job(uint32_t call_site)
 {
     if (job_active != 0U)
         commit_current_job(JOB_FLAG_TRUNCATED);
@@ -190,32 +204,46 @@ static void begin_job(void)
     current_job.tick_ms = read_u32(STOCK_TOUCH_TICK);
     current_job.run_count = read_u32(STOCK_SYS_RUN_COUNT);
     current_job.state_pack = read_u8(STOCK_RUN_STOP) & 0xFFU;
+    current_job.begin_call_site = call_site;
+    current_job.last_call_site = call_site;
+    current_job.selector_count = 1U;
+    current_job.primitive_count = 1U;
     job_active = 1U;
 }
 
-static void handle_selector(uint32_t selector)
+static void handle_selector(uint32_t selector, uint32_t call_site)
 {
     selector &= 0xFFU;
 
     if (selector == 0x69U) {
-        begin_job();
+        begin_job(call_site);
     } else if (job_active != 0U && current_selector == 0x66U &&
                count_get(24U) != 0U) {
         commit_current_job(JOB_FLAG_TRUNCATED);
     }
 
-    if (job_active != 0U && selector == 0x6AU)
-        current_job.flags |= JOB_FLAG_HAVE_6A;
+    if (job_active != 0U) {
+        if (selector == 0x6AU)
+            current_job.flags |= JOB_FLAG_HAVE_6A;
+        current_job.last_call_site = call_site;
+        if (selector != 0x69U) {
+            current_job.selector_count += 1U;
+            current_job.primitive_count += 1U;
+        }
+    }
 
     current_selector = selector;
 }
 
-static void handle_write(uint32_t byte)
+static void handle_write(uint32_t byte, uint32_t call_site)
 {
     byte &= 0xFFU;
 
     if (job_active == 0U)
         return;
+
+    current_job.last_call_site = call_site;
+    current_job.primitive_count += 1U;
 
     switch (current_selector) {
     case 0x69U:
@@ -240,7 +268,7 @@ static void handle_write(uint32_t byte)
     }
 }
 
-static void handle_read(uint32_t byte)
+static void handle_read(uint32_t byte, uint32_t call_site)
 {
     uint32_t count;
 
@@ -248,6 +276,9 @@ static void handle_read(uint32_t byte)
 
     if (job_active == 0U)
         return;
+
+    current_job.last_call_site = call_site;
+    current_job.primitive_count += 1U;
 
     switch (current_selector) {
     case 0x64U:
@@ -285,14 +316,12 @@ static void handle_read(uint32_t byte)
 void dposdbg_trace_primitive(uint32_t event, uint32_t value,
                              uint32_t call_site)
 {
-    (void)call_site;
-
     if (event == DPOSDBG_EVENT_FPGA_SELECTOR)
-        handle_selector(value);
+        handle_selector(value, call_site);
     else if (event == DPOSDBG_EVENT_FPGA_WRITE)
-        handle_write(value);
+        handle_write(value, call_site);
     else if (event == DPOSDBG_EVENT_FPGA_READ)
-        handle_read(value);
+        handle_read(value, call_site);
 }
 
 static int trace_export(void)
