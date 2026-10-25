@@ -13,6 +13,11 @@ static uint32_t read_sctlr(void)
     return value;
 }
 
+int cache_dcache_enabled(void)
+{
+    return (read_sctlr() & SCTLR_DCACHE_ENABLE) != 0U;
+}
+
 static uint32_t read_ctr(void)
 {
     uint32_t value;
@@ -49,6 +54,34 @@ void cache_clean_range(uintptr_t start, size_t bytes)
         address += line_size;
     }
 
+    cache_dsb();
+}
+
+void cache_invalidate_range(uintptr_t start, size_t bytes)
+{
+    uintptr_t address;
+    uintptr_t end;
+    uintptr_t line_size;
+    uint32_t ctr;
+
+    if (!cache_dcache_enabled() || bytes == 0U)
+        return;
+
+    ctr = read_ctr();
+    line_size = 4U << ((ctr >> 16) & 0xFU);
+    address = start & ~(line_size - 1U);
+    end = start + bytes;
+
+    cache_dsb();
+    while (address < end) {
+        __asm__ volatile (
+            "mcr p15, 0, %0, c7, c6, 1"
+            :
+            : "r" (address)
+            : "memory"
+        );
+        address += line_size;
+    }
     cache_dsb();
 }
 

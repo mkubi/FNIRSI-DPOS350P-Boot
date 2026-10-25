@@ -32,6 +32,15 @@ typedef struct {
     uint8_t attributes;
 } fat_file_t;
 
+typedef struct {
+    const fat_volume_t *volume;
+    const fat_file_t *file;
+    uint32_t current_cluster;
+    uint32_t file_sector;
+    uint32_t sector_in_cluster;
+    uint8_t initialized;
+} fat_file_reader_t;
+
 int fat_mount_first(fat_volume_t *volume);
 int fat_find_root(const fat_volume_t *volume,
                   const char name83[11],
@@ -40,5 +49,11 @@ int fat_read_file_sector(const fat_volume_t *volume,
                          const fat_file_t *file,
                          uint32_t file_sector,
                          uint8_t *buffer);
+
+int fat_file_reader_init(fat_file_reader_t *reader,
+                         const fat_volume_t *volume,
+                         const fat_file_t *file);
+int fat_file_reader_read_next(fat_file_reader_t *reader,
+                              uint8_t *buffer);
 
 #endif /* FAT_H */

@@ -117,6 +117,12 @@ static void boot_menu_draw(const boot_context_t *context,
 
     draw_target(
         context,
+        BOOT_TARGET_DEBUG_EXE2_FAT,
+        selected
+    );
+
+    draw_target(
+        context,
         BOOT_TARGET_CUSTOM,
         selected
     );
@@ -197,12 +203,15 @@ static boot_target_id_t boot_menu_hit_test(uint16_t x,
         return BOOT_TARGET_NONE;
 
     if (y >= 48U && y < 130U)
-        return BOOT_TARGET_CUSTOM;
+        return BOOT_TARGET_DEBUG_EXE2_FAT;
 
     if (y >= 130U && y < 220U)
+        return BOOT_TARGET_CUSTOM;
+
+    if (y >= 220U && y < 310U)
         return BOOT_TARGET_ORIGINAL_SCOPE;
 
-    if (y >= 220U && y < 280U)
+    if (y >= 310U && y < 400U)
         return BOOT_TARGET_USB_CONNECT;
 
     return BOOT_TARGET_NONE;

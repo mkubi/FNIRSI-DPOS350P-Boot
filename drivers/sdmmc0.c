@@ -25,6 +25,9 @@
 #define SD_CMDR           (SD0_BASE + 0x018U)
 #define SD_CAGR           (SD0_BASE + 0x01CU)
 #define SD_RESP0          (SD0_BASE + 0x020U)
+#define SD_RESP1          (SD0_BASE + 0x024U)
+#define SD_RESP2          (SD0_BASE + 0x028U)
+#define SD_RESP3          (SD0_BASE + 0x02CU)
 #define SD_RISR           (SD0_BASE + 0x038U)
 #define SD_STAR           (SD0_BASE + 0x03CU)
 #define SD_FIFO           (SD0_BASE + 0x200U)
@@ -47,6 +50,10 @@
 #define STAR_FIFO_EMPTY   (1U << 2)
 #define RINT_ERROR_MASK   0x0000BBC2U
 #define TIMEOUT           1000000U
+
+/* Keep identification at 400 kHz, then use the HW-tested 24 MHz data clock. */
+#define SDMMC0_IDENT_CLOCK_REG 0x8002000EU
+#define SDMMC0_DATA_CLOCK_REG  0x80000000U
 
 static sdmmc0_info_t *diag_info;
 static uint32_t card_rca;
@@ -99,6 +106,26 @@ static int update_clock(void)
     return -1;
 }
 
+static int set_card_clock_reg(uint32_t ccu_clock_reg)
+{
+    int r;
+
+    mmio_write32(SD_CKCR, 0U);
+    r = update_clock();
+    if (r)
+        return -1;
+
+    mmio_write32(CCU_SD0_CLK, ccu_clock_reg);
+    delay(1U);
+
+    mmio_write32(SD_CKCR, 1U << 16);
+    r = update_clock();
+    if (r)
+        return -2;
+
+    return 0;
+}
+
 static int send_cmd(uint32_t idx, uint32_t arg, uint32_t flags,
                     uint32_t *resp)
 {
@@ -145,6 +172,111 @@ static int send_cmd(uint32_t idx, uint32_t arg, uint32_t flags,
     return 0;
 }
 
+static int send_cmd_long(uint32_t idx, uint32_t arg, uint32_t flags,
+                         uint32_t response[4])
+{
+    int result;
+
+    result = send_cmd(idx, arg, flags | CMD_LONG_RESP, NULL);
+    if (result)
+        return result;
+
+    response[0] = mmio_read32(SD_RESP0);
+    response[1] = mmio_read32(SD_RESP1);
+    response[2] = mmio_read32(SD_RESP2);
+    response[3] = mmio_read32(SD_RESP3);
+    return 0;
+}
+
+static uint32_t decode_csd_v2_words(const uint32_t words[4])
+{
+    uint32_t csd_structure;
+    uint32_t c_size;
+    uint32_t sectors;
+
+    /* words[0] contains CSD bits 31:0; words[3] contains bits 127:96. */
+    csd_structure = (words[3] >> 30) & 3U;
+    if (csd_structure != 1U)
+        return 0U;
+
+    /* SDHC/SDXC CSD v2.0: C_SIZE is bits 69:48. */
+    c_size = ((words[2] & 0x3FU) << 16)
+           | ((words[1] >> 16) & 0xFFFFU);
+
+    /* Capacity in 512-byte sectors is (C_SIZE + 1) * 1024. */
+    if (c_size >= 0x3FFFFFU)
+        return 0U;
+
+    sectors = (c_size + 1U) * 1024U;
+
+    /* Reject clearly implausible results caused by response alignment/order. */
+    if (sectors < 0x00020000U)
+        return 0U;
+
+    return sectors;
+}
+
+static void reverse_words(const uint32_t input[4], uint32_t output[4])
+{
+    output[0] = input[3];
+    output[1] = input[2];
+    output[2] = input[1];
+    output[3] = input[0];
+}
+
+static void shift_words_right8(const uint32_t input[4], uint32_t output[4])
+{
+    output[0] = (input[0] >> 8) | (input[1] << 24);
+    output[1] = (input[1] >> 8) | (input[2] << 24);
+    output[2] = (input[2] >> 8) | (input[3] << 24);
+    output[3] = input[3] >> 8;
+}
+
+static void shift_words_left8(const uint32_t input[4], uint32_t output[4])
+{
+    output[3] = (input[3] << 8) | (input[2] >> 24);
+    output[2] = (input[2] << 8) | (input[1] >> 24);
+    output[1] = (input[1] << 8) | (input[0] >> 24);
+    output[0] = input[0] << 8;
+}
+
+static uint32_t decode_capacity_sectors(const uint32_t raw[4])
+{
+    uint32_t candidate[4];
+    uint32_t shifted[4];
+    uint32_t sectors;
+
+    /* Try RESP0..RESP3 as low-to-high 32-bit CSD words. */
+    sectors = decode_csd_v2_words(raw);
+    if (sectors != 0U)
+        return sectors;
+
+    /* Some Allwinner response paths expose the four words in reverse order. */
+    reverse_words(raw, candidate);
+    sectors = decode_csd_v2_words(candidate);
+    if (sectors != 0U)
+        return sectors;
+
+    /* R2 responses may include/exclude the leading CRC framing byte. */
+    shift_words_right8(raw, shifted);
+    sectors = decode_csd_v2_words(shifted);
+    if (sectors != 0U)
+        return sectors;
+
+    shift_words_left8(raw, shifted);
+    sectors = decode_csd_v2_words(shifted);
+    if (sectors != 0U)
+        return sectors;
+
+    shift_words_right8(candidate, shifted);
+    sectors = decode_csd_v2_words(shifted);
+    if (sectors != 0U)
+        return sectors;
+
+    shift_words_left8(candidate, shifted);
+    return decode_csd_v2_words(shifted);
+}
+
 int sdmmc0_init(sdmmc0_info_t *info)
 {
     uint32_t v, resp = 0U, ocr = 0U, rca = 0U;
@@ -158,6 +290,11 @@ int sdmmc0_init(sdmmc0_info_t *info)
     info->ocr = 0U;
     info->rca = 0U;
     info->high_capacity = 0U;
+    info->csd[0] = 0U;
+    info->csd[1] = 0U;
+    info->csd[2] = 0U;
+    info->csd[3] = 0U;
+    info->capacity_sectors = 0U;
     info->last_cmd = 0U;
     info->last_risr = 0U;
     info->last_cmdr = 0U;
@@ -191,7 +328,7 @@ int sdmmc0_init(sdmmc0_info_t *info)
     mmio_write32(CCU_RST0, v | (1U << 8));
     delay(20U);
 
-    mmio_write32(CCU_SD0_CLK, 0x8002000EU);
+    mmio_write32(CCU_SD0_CLK, SDMMC0_IDENT_CLOCK_REG);
     delay(1U);
 
     v = mmio_read32(SD_HWRST);
@@ -285,6 +422,16 @@ int sdmmc0_init(sdmmc0_info_t *info)
     card_rca = info->rca;
     card_high_capacity = info->high_capacity;
 
+    /* CMD9: read CSD while the card is still in standby state. */
+    r = send_cmd_long(9U, card_rca,
+                      CMD_RESP | CMD_CHECK_CRC, info->csd);
+    if (r) {
+        info->last_error = r;
+        return r;
+    }
+
+    info->capacity_sectors = decode_capacity_sectors(info->csd);
+
     /* CMD7: select the card and move it to transfer state. */
     r = send_cmd(7U, card_rca,
                  CMD_RESP | CMD_CHECK_CRC | CMD_WAIT_PRE, &resp);
@@ -301,6 +448,13 @@ int sdmmc0_init(sdmmc0_info_t *info)
             info->last_error = r;
             return r;
         }
+    }
+
+    /* Switch to the stress-tested 24 MHz data clock. */
+    r = set_card_clock_reg(SDMMC0_DATA_CLOCK_REG);
+    if (r) {
+        /* Recovery-first fallback to the proven 400 kHz baseline. */
+        (void)set_card_clock_reg(SDMMC0_IDENT_CLOCK_REG);
     }
 
     capture_state();

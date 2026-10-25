@@ -1,4 +1,5 @@
 #include <stddef.h>
+
 #include "boot_targets.h"
 
 static void clear_status(boot_target_status_t *status)
@@ -10,6 +11,8 @@ static void clear_status(boot_target_status_t *status)
 const char *boot_target_name(boot_target_id_t id)
 {
     switch (id) {
+    case BOOT_TARGET_DEBUG_EXE2_FAT:
+        return "DEBUG EXE2 FROM FAT";
     case BOOT_TARGET_CUSTOM:
         return "CUSTOM APPLICATION";
     case BOOT_TARGET_ORIGINAL_SCOPE:
@@ -31,6 +34,11 @@ void boot_targets_probe(boot_context_t *context)
 
     for (i = 0U; i < BOOT_TARGET_COUNT; i++)
         clear_status(&context->status[i]);
+
+    result = debug_exe2_probe(&context->debug_exe2);
+    context->status[BOOT_TARGET_DEBUG_EXE2_FAT].probe_result = result;
+    context->status[BOOT_TARGET_DEBUG_EXE2_FAT].available =
+        result == LOADER_OK;
 
     result = custom_app_probe(&context->custom);
     context->status[BOOT_TARGET_CUSTOM].probe_result = result;
@@ -54,10 +62,15 @@ boot_target_id_t boot_targets_default(const boot_context_t *context)
     if (!context)
         return BOOT_TARGET_NONE;
 
+    if (context->status[BOOT_TARGET_DEBUG_EXE2_FAT].available)
+        return BOOT_TARGET_DEBUG_EXE2_FAT;
+
     if (context->status[BOOT_TARGET_CUSTOM].available)
         return BOOT_TARGET_CUSTOM;
+
     if (context->status[BOOT_TARGET_ORIGINAL_SCOPE].available)
         return BOOT_TARGET_ORIGINAL_SCOPE;
+
     if (context->status[BOOT_TARGET_USB_CONNECT].available)
         return BOOT_TARGET_USB_CONNECT;
 
@@ -68,10 +81,13 @@ int boot_target_load(boot_context_t *context, boot_target_id_t id)
 {
     if (!context || id >= BOOT_TARGET_COUNT)
         return LOADER_ERR_ARGUMENT;
+
     if (!context->status[id].available)
         return context->status[id].probe_result;
 
     switch (id) {
+    case BOOT_TARGET_DEBUG_EXE2_FAT:
+        return debug_exe2_load(&context->debug_exe2);
     case BOOT_TARGET_CUSTOM:
         return custom_app_load(&context->custom);
     case BOOT_TARGET_ORIGINAL_SCOPE:
@@ -90,6 +106,8 @@ const loader_image_t *boot_target_image(const boot_context_t *context,
         return NULL;
 
     switch (id) {
+    case BOOT_TARGET_DEBUG_EXE2_FAT:
+        return &context->debug_exe2.image;
     case BOOT_TARGET_CUSTOM:
         return &context->custom.image;
     case BOOT_TARGET_ORIGINAL_SCOPE:

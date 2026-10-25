@@ -8,6 +8,14 @@ static void nl(void){cx=16U;cy+=10U*sc;}
 void console_init(uint16_t f,uint16_t b,unsigned int scale){fg=f;bg=b;sc=scale?scale:1U;console_clear();}
 void console_clear(void){fill(bg);cx=16U;cy=16U;}
 void console_set_color(uint16_t c){fg=c;}
+void console_set_cursor(unsigned int column,unsigned int row)
+{
+    unsigned int char_w=8U*sc,char_h=8U*sc;
+    unsigned int x=column*char_w,y=row*char_h;
+    if(x+char_w>DISPLAY_WIDTH)x=DISPLAY_WIDTH-char_w;
+    if(y+char_h>DISPLAY_HEIGHT)y=DISPLAY_HEIGHT-char_h;
+    cx=x;cy=y;
+}
 void console_puts(const char*s){while(*s){if(*s=='\n'){nl();s++;continue;}if(cx+8U*sc>=DISPLAY_WIDTH)nl();ch(cx,cy,*s++,fg);cx+=8U*sc;}}
 void console_putln(const char*s){console_puts(s);nl();}
 void console_status(const char*label,const char*status,uint16_t c){uint16_t old=fg;console_puts(label);console_puts(" ");fg=c;console_putln(status);fg=old;}

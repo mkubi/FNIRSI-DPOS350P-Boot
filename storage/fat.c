@@ -342,3 +342,63 @@ int fat_read_file_sector(const fat_volume_t *v,
     return sdmmc0_read_sector(cluster_lba(v, cluster) + sector_in_cluster,
                               buffer);
 }
+
+int fat_file_reader_init(fat_file_reader_t *reader,
+                         const fat_volume_t *volume,
+                         const fat_file_t *file)
+{
+    if (!reader || !volume || !file)
+        return -1;
+    if (file->first_cluster < 2U || !volume->sectors_per_cluster)
+        return -2;
+
+    reader->volume = volume;
+    reader->file = file;
+    reader->current_cluster = file->first_cluster;
+    reader->file_sector = 0U;
+    reader->sector_in_cluster = 0U;
+    reader->initialized = 1U;
+    return 0;
+}
+
+int fat_file_reader_read_next(fat_file_reader_t *reader,
+                              uint8_t *buffer)
+{
+    const fat_volume_t *v;
+    uint32_t total_sectors;
+    uint32_t next;
+    int r;
+
+    if (!reader || !buffer || !reader->initialized)
+        return -1;
+
+    v = reader->volume;
+    total_sectors = (reader->file->size + FAT_SECTOR_SIZE - 1U)
+                  / FAT_SECTOR_SIZE;
+    if (reader->file_sector >= total_sectors)
+        return -2;
+
+    r = sdmmc0_read_sector(cluster_lba(v, reader->current_cluster)
+                         + reader->sector_in_cluster,
+                           buffer);
+    if (r)
+        return -3;
+
+    reader->file_sector++;
+    reader->sector_in_cluster++;
+
+    if (reader->file_sector < total_sectors &&
+        reader->sector_in_cluster >= v->sectors_per_cluster) {
+        r = next_cluster(v, reader->current_cluster, &next);
+        if (r)
+            return -4;
+        if (next < 2U || cluster_is_eoc(v, next) ||
+            cluster_is_bad(v, next))
+            return -5;
+
+        reader->current_cluster = next;
+        reader->sector_in_cluster = 0U;
+    }
+
+    return 0;
+}

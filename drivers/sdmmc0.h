@@ -10,6 +10,8 @@ typedef struct {
     uint32_t ocr;
     uint32_t rca;
     uint32_t high_capacity;
+    uint32_t csd[4];
+    uint32_t capacity_sectors;
     uint32_t last_cmd;
     uint32_t last_risr;
     uint32_t last_cmdr;

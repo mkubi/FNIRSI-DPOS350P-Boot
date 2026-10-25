@@ -6,3 +6,8 @@
 /work/
 /stage1/xfel-v3s/
 
+# Python cache
+__pycache__/
+*.py[cod]
+# Local archives and extracted vendor sources
+/dpos-p04b-sources.tar.gz

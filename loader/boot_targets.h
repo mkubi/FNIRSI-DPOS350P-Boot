@@ -2,11 +2,14 @@
 #define BOOT_TARGETS_H
 
 #include <stdint.h>
+
 #include "custom.h"
+#include "debug_exe2.h"
 #include "original.h"
 
 typedef enum {
-    BOOT_TARGET_CUSTOM = 0,
+    BOOT_TARGET_DEBUG_EXE2_FAT = 0,
+    BOOT_TARGET_CUSTOM,
     BOOT_TARGET_ORIGINAL_SCOPE,
     BOOT_TARGET_USB_CONNECT,
     BOOT_TARGET_COUNT,
@@ -20,6 +23,7 @@ typedef struct {
 
 typedef struct {
     boot_target_status_t status[BOOT_TARGET_COUNT];
+    debug_exe2_app_t debug_exe2;
     custom_app_t custom;
     original_app_t scope;
     original_app_t usb;

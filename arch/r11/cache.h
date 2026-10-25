@@ -4,7 +4,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+int cache_dcache_enabled(void);
 void cache_clean_range(uintptr_t start, size_t bytes);
+void cache_invalidate_range(uintptr_t start, size_t bytes);
 void cache_invalidate_icache_all(void);
 void cache_invalidate_branch_predictor(void);
 
