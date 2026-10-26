@@ -41,6 +41,7 @@ SOURCES_C := \
     job2_recovery_test.c \
     stage24_fpga_preinit_test.c \
     stage25_stock_id_raw4_test.c \
+    stock_parity_test.c \
     fpga_primitive_test.c \
     ui_adapter.c \
     $(ROOT)/arch/r11/cache.c \

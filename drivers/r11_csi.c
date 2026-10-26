@@ -105,6 +105,8 @@ void r11_csi_snapshot(struct r11_csi_snapshot *s)
     s->pe_cfg0 = mmio_read32(PE_CFG0);
     s->pe_cfg1 = mmio_read32(PE_CFG1);
     s->pe_data = mmio_read32(PE_DATA);
+    s->reg_0004 = mmio_read32(CSI_REG_IF_CFG);
+    s->reg_0044 = mmio_read32(CSI_REG_HSIZE);
     s->reg_0008 = mmio_read32(CSI_REG_MODE);
     s->reg_0050 = mmio_read32(CSI_REG_BUF0);
     s->reg_0070 = mmio_read32(CSI_REG_IRQ_EN);
@@ -149,6 +151,74 @@ int r11_csi_configure_no_capture(struct r11_csi_config_result *r)
            r->geo2_readback == r->geo2_expected &&
            (r->irq_readback & R11_CSI_DONE) != 0U &&
            r->capture_disabled;
+}
+
+int r11_csi_stock_parity_init(
+    uintptr_t buffer_address,
+    struct r11_csi_stock_parity_result *r)
+{
+    uint32_t value;
+
+    r->pll_ready = 0;
+
+    /* Stock 0x40065F48: bus gate/reset and CSI module-clock sequence. */
+    value = mmio_read32(CCU_BASE + 0x64U);
+    mmio_write32(CCU_BASE + 0x64U, value | (1U << 8));
+    value = mmio_read32(CCU_BASE + 0x2C4U);
+    mmio_write32(CCU_BASE + 0x2C4U, value | (1U << 8));
+    cache_dsb();
+
+    value = mmio_read32(CCU_BASE + 0x100U);
+    mmio_write32(CCU_BASE + 0x100U, value | 0x00000002U);
+
+    value = mmio_read32(CCU_BASE + 0x2CU);
+    mmio_write32(CCU_BASE + 0x2CU, value | 0x80000000U);
+    r->pll_ready = wait_mask_set(CCU_BASE + 0x2CU,
+                                 0x01000000U, 100U);
+    if (!r->pll_ready)
+        return 0;
+
+    mmio_write32(CCU_BASE + 0x134U, 0x81800000U);
+    cache_dsb();
+
+    /* DPOSLAB boundary immediately after 0x40065F48. */
+    r->initial_if_cfg = mmio_read32(CSI_REG_IF_CFG);
+    r->initial_hsize = mmio_read32(CSI_REG_HSIZE);
+
+    /*
+     * Stock 0x40065FA8(8000): confirmed final interface and HSIZE state.
+     * Keep capture disabled. Geometry values are the confirmed stock bank-0
+     * baseline already used by the existing diagnostic driver.
+     */
+    mmio_write32(CSI_REG_MODE, 0U);
+    mmio_write32(CSI_REG_IF_CFG, 0x01060400U);
+    mmio_write32(CSI_REG_HSIZE, 0x00000A00U);
+    mmio_write32(CSI_REG_GEO0, 0x18000000U);
+    mmio_write32(CSI_REG_GEO1, 0x00010000U);
+    mmio_write32(CSI_REG_GEO2, 0x2374287CU);
+    cache_dsb();
+
+    r->final_if_cfg = mmio_read32(CSI_REG_IF_CFG);
+    r->final_hsize = mmio_read32(CSI_REG_HSIZE);
+
+    /* Stock 0x40065EF8, then the remainder of 0x40066054. */
+    csi_pinmux_enable();
+    r->csi_pe_cfg0 = mmio_read32(PE_CFG0);
+    r->csi_pe_cfg1 = mmio_read32(PE_CFG1);
+
+    r11_csi_set_buffer0(buffer_address);
+    mmio_write32(CSI_REG_IRQ_EN, R11_CSI_DONE);
+    cache_dsb();
+
+    r->buffer0 = mmio_read32(CSI_REG_BUF0);
+    r->irq_enable = mmio_read32(CSI_REG_IRQ_EN);
+    r->mode = mmio_read32(CSI_REG_MODE);
+
+    return r->final_if_cfg == 0x01060400U &&
+           r->final_hsize == 0x00000A00U &&
+           r->buffer0 == (uint32_t)(buffer_address >> 2) &&
+           (r->irq_enable & R11_CSI_DONE) != 0U &&
+           r->mode == 0U;
 }
 
 uint32_t r11_csi_status(void)

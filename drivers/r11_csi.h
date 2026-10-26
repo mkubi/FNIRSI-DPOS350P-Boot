@@ -14,6 +14,8 @@ struct r11_csi_snapshot {
     uint32_t pe_cfg0;
     uint32_t pe_cfg1;
     uint32_t pe_data;
+    uint32_t reg_0004;
+    uint32_t reg_0044;
     uint32_t reg_0008;
     uint32_t reg_0050;
     uint32_t reg_0070;
@@ -57,10 +59,27 @@ struct r11_csi_config_result {
     int capture_disabled;
 };
 
+struct r11_csi_stock_parity_result {
+    int pll_ready;
+    uint32_t initial_if_cfg;
+    uint32_t initial_hsize;
+    uint32_t final_if_cfg;
+    uint32_t final_hsize;
+    uint32_t csi_pe_cfg0;
+    uint32_t csi_pe_cfg1;
+    uint32_t buffer0;
+    uint32_t irq_enable;
+    uint32_t mode;
+    struct r11_csi_snapshot restored;
+};
+
 void r11_csi_snapshot(struct r11_csi_snapshot *snapshot);
 int r11_csi_configure_no_capture(struct r11_csi_config_result *result);
 int r11_csi_prepare_no_capture(uintptr_t buffer_address,
                                struct r11_csi_init_result *result);
+int r11_csi_stock_parity_init(
+    uintptr_t buffer_address,
+    struct r11_csi_stock_parity_result *result);
 uint32_t r11_csi_status(void);
 void r11_csi_ack(uint32_t mask);
 void r11_csi_set_buffer0(uintptr_t address);

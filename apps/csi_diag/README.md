@@ -1,5 +1,34 @@
 # CSI single-bank smoke test
 
+## Stage 26 stock CSI initialization parity
+
+Stage 26 is a no-capture Custom App test derived from the HW-confirmed
+DPOSLAB decomposition of stock `FPGA_Start()`.
+
+It reproduces the confirmed initialization order without invoking stock EXE2:
+
+```text
+CSI clock/reset bring-up
+CSI interface/geometry configuration for quantity 8000
+PE CSI function-2 pinmux
+bank-0 destination programming
+CSI completion IRQ enable
+restore FPGA GPIO control mode
+```
+
+The test reports the intermediate clock/reset state, final CSI register state,
+CSI pinmux state, destination encoding and restored GPIO state independently.
+It performs no SMEC jobs, no FPGA acquisition commands, no CSI capture enable
+and no DMA transfer. All clock readiness waiting is timeout protected.
+
+Pinmux parity is checked only over fields owned by the corresponding stock
+helpers. `0x40065EF8` owns PE0, PE2 and PE3 in `PE_CFG0`, plus all of
+`PE_CFG1`; PE1 and PE4..PE7 retain their pre-existing state. GPIO restore is
+validated functionally as PE0..PE3 in GPIO mode, PE8..PE15 as inputs, PE0
+high and PE1 low. Absolute full-word `PE_CFG0` equality is intentionally not
+required because stock EXE2 and the standalone Custom App enter the helper
+with different unrelated pinmux state.
+
 This Custom App first reproduces the seven HW-confirmed SMEC_Init startup jobs, then performs one timeout-protected bank-0 FPGA-to-CSI-to-RAM capture.
 
 Default build stage: `CSI_DIAG_STAGE=25`. Stage 1 and Stage 2 are unchanged.
