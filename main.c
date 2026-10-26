@@ -7,9 +7,12 @@
 #include "boot_menu.h"
 #include "start.h"
 #include "dposdbg.h"
+#include "dposlab.h"
 
 #define BLACK 0x0000U
 #define WHITE 0xFFFFU
+
+static dposlab_handoff_t dposlab_handoff;
 
 static char dposdbg_hex_digit(uint32_t value)
 {
@@ -86,6 +89,7 @@ int main(void)
     int touch_available;
     int load_result;
     int dposdbg_result;
+    loader_image_t dposlab_image;
 
     display_init();
     console_init(WHITE, BLACK, 2U);
@@ -169,9 +173,27 @@ int main(void)
     if (selected == BOOT_TARGET_DEBUG_EXE2_FAT) {
         console_clear();
         console_set_color(WHITE);
-        console_putln("DEBUG EXE2 IN RAM");
-        console_putln("HANDOFF NOW");
+        console_putln("EXE2 IN RAM");
+        console_putln("LOADING DPOSLAB STAGE 3");
         console_present();
+        load_result = dposlab_load(&context.debug_exe2, &dposlab_image);
+        if (load_result != LOADER_OK) {
+            boot_menu_show_error(selected, load_result);
+            for (;;) __asm__ volatile ("wfi");
+        }
+        dposlab_handoff.magic = DPOSLAB_HANDOFF_MAGIC;
+        dposlab_handoff.version = DPOSLAB_HANDOFF_VERSION;
+        dposlab_handoff.size = (uint32_t)sizeof(dposlab_handoff);
+        dposlab_handoff.flags = DPOSLAB_FLAG_EXE2_LOADED;
+        dposlab_handoff.stage2_sp = 0U;
+        dposlab_handoff.exe2_base = context.debug_exe2.image.load_address;
+        dposlab_handoff.exe2_size = context.debug_exe2.image.image_size;
+        dposlab_handoff.exe2_entry = 0x40000000U;
+        dposlab_handoff.dposlab_base = dposlab_image.load_address;
+        dposlab_handoff.dposlab_size = dposlab_image.image_size;
+        dposlab_handoff.dposlab_entry = dposlab_image.entry_address;
+
+        dposlab_start(&dposlab_image, &dposlab_handoff);
     }
 
     loader_start_image(image);
