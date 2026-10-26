@@ -48,7 +48,7 @@ $(TARGET).lst: $(TARGET).elf
 
 check: $(TARGET).BIN
 	@test $$(od -An -tx4 -N4 $(TARGET).BIN | tr -d ' ') = 30474244
-	@test $$(od -An -tu4 -j4 -N4 $(TARGET).BIN | tr -d ' ') = 1
+	@test $$(od -An -tu4 -j4 -N4 $(TARGET).BIN | tr -d ' ') = 2
 	@test $$(stat -c %s $(TARGET).BIN) -le 65536
 	@echo "DPOSDBG v4.1 header/resident size: OK"
 

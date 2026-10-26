@@ -11,6 +11,72 @@
 #define BLACK 0x0000U
 #define WHITE 0xFFFFU
 
+static char dposdbg_hex_digit(uint32_t value)
+{
+    return value < 10U ? (char)('0' + value) : (char)('A' + value - 10U);
+}
+
+static void dposdbg_put_hex32(uint32_t value)
+{
+    char text[11];
+    unsigned int i;
+    text[0] = '0';
+    text[1] = 'x';
+    for (i = 0U; i < 8U; ++i)
+        text[2U + i] = dposdbg_hex_digit((value >> (28U - i * 4U)) & 0xFU);
+    text[10] = '\0';
+    console_puts(text);
+}
+
+static void dposdbg_put_u32(uint32_t value)
+{
+    char text[11];
+    unsigned int pos = sizeof(text) - 1U;
+    text[pos] = '\0';
+    do {
+        text[--pos] = (char)('0' + value % 10U);
+        value /= 10U;
+    } while (value != 0U);
+    console_puts(&text[pos]);
+}
+
+static void dposdbg_show_diag(int result)
+{
+    const dposdbg_diag_t *diag = dposdbg_last_diag();
+    console_set_color(WHITE);
+    console_puts("DPOSDBG ABI: ");
+    dposdbg_put_u32(diag->abi_version);
+    console_puts("  HOOKS: ");
+    dposdbg_put_u32(diag->hook_count);
+    console_putln("");
+    console_puts("PHASE: ");
+    console_putln(dposdbg_diag_phase_name(diag->phase));
+    console_puts("RESULT: ");
+    dposdbg_put_hex32((uint32_t)result);
+    console_putln("");
+    console_puts("HOOK: ");
+    dposdbg_put_u32(diag->hook_index);
+    console_puts(" / ");
+    dposdbg_put_u32(diag->hook_count);
+    console_puts("  TYPE: ");
+    console_putln(dposdbg_patch_type_name(diag->patch_type));
+    console_puts("SITE: ");
+    dposdbg_put_hex32(diag->site);
+    console_puts("  VENEER: ");
+    dposdbg_put_hex32(diag->veneer_address);
+    console_putln("");
+    console_puts("EXPECTED: ");
+    dposdbg_put_hex32(diag->expected_word);
+    console_puts("  ACTUAL: ");
+    dposdbg_put_hex32(diag->actual_word);
+    console_putln("");
+    console_puts("TARGET: ");
+    dposdbg_put_hex32(diag->target_address);
+    console_puts("  GENERATED: ");
+    dposdbg_put_hex32(diag->generated_word);
+    console_putln("");
+}
+
 int main(void)
 {
     static boot_context_t context;
@@ -74,8 +140,8 @@ int main(void)
             console_putln("PATCH READBACK: OK");
         else
             console_putln("PATCH READBACK: FAILED");
-	console_putln("HOOK SITE: SAME WORD");
-	console_present();
+        dposdbg_show_diag(dposdbg_result);
+        console_present();
 
     }
 

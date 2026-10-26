@@ -25,13 +25,15 @@ SECTIONS
     .data : ALIGN(4) { *(.data*) } > plugin
     .trace : ALIGN(32) { KEEP(*(.trace)) } > plugin
 
+    __image_end = .;
+    __image_size = __image_end - __image_start;
+
     .bss (NOLOAD) : ALIGN(4) {
         *(.bss*)
         *(COMMON)
     } > plugin
 
-    __image_end = .;
-    __image_size = __image_end - __image_start;
+    __runtime_end = .;
 
     /DISCARD/ : {
         *(.comment*)
@@ -41,6 +43,6 @@ SECTIONS
         *(.ARM.extab*)
     }
 
-    ASSERT(__image_end <= ORIGIN(plugin) + LENGTH(plugin),
+    ASSERT(__runtime_end <= ORIGIN(plugin) + LENGTH(plugin),
            "DPOSDBG exceeds reserved 64 KiB resident region")
 }
