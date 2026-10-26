@@ -1,6 +1,8 @@
 #include <stdint.h>
 #include "stock_api.h"
 #include "runtime_patch.h"
+#include "runtime_snapshot.h"
+#include "runtime_trace.h"
 #include "dposlab_abi.h"
 #include "../../drivers/display.h"
 #include "../../ui/console.h"
@@ -11,6 +13,8 @@
 #endif
 #define WHITE 0xFFFFU
 #define BLACK 0x0000U
+#define DPOSLAB_PHOTO_DELAY_LOOPS 500000000U
+
 static volatile uint32_t marker __attribute__((section(".data"))) = 0x4C414201U;
 
 static void put_hex(uint32_t v)
@@ -28,20 +32,39 @@ volatile uint32_t dposlab_fpga_hook_hits
 volatile uint32_t dposlab_fpga_post_cpsr
     __attribute__((section(".data"))) = 0U;
 
-void dposlab_fpga_return_monitor(uint32_t post_cpsr)
+static void photo_delay(void)
 {
-    dposlab_fpga_post_cpsr = post_cpsr;
+    volatile uint32_t delay;
+
+    for (delay = 0U; delay < DPOSLAB_PHOTO_DELAY_LOOPS; ++delay)
+        __asm__ volatile ("nop");
+}
+
+static void put_before_after(const char *name,
+                             uint32_t before,
+                             uint32_t after)
+{
+    console_puts(name);
+    put_hex(before);
+    console_puts(" / ");
+    put_hex(after);
+    console_putln("");
+}
+
+void dposlab_fpga_return_monitor(void)
+{
     dposlab_fpga_hook_hits += 1U;
+    dposlab_fpga_post_cpsr = dposlab_fpga_after.cpsr;
     marker = 0x4C414246U; /* "LABF" */
 
     /*
-     * Do not re-run display_init().  The stock application has already
-     * initialized its early display path before calling FPGA_Start.
+     * Page 1: CPU and PE bus state.
+     * All displayed hardware values were captured passively.
      */
     console_init(WHITE, BLACK, 2U);
     console_clear();
 
-    console_putln("DPOSLAB RUNTIME MONITOR");
+    console_putln("DPOSLAB FPGA DIFF 1/2");
     console_putln("---------------------------");
     console_putln("FPGA_Start RETURNED        PASS");
 
@@ -49,21 +72,151 @@ void dposlab_fpga_return_monitor(uint32_t post_cpsr)
     put_hex(dposlab_fpga_hook_hits);
     console_putln("");
 
-    console_puts("POST CPSR                  ");
-    put_hex(dposlab_fpga_post_cpsr);
+    put_before_after("CPSR B/A   ",
+                     dposlab_fpga_before.cpsr,
+                     dposlab_fpga_after.cpsr);
+
+    console_puts("GPR CHANGED MASK           ");
+    put_hex(dposlab_gpr_changed_mask());
+    console_putln("");
+
+    put_before_after("PE CFG0 B/A ",
+                     dposlab_fpga_before.pe_cfg0,
+                     dposlab_fpga_after.pe_cfg0);
+
+    put_before_after("PE CFG1 B/A ",
+                     dposlab_fpga_before.pe_cfg1,
+                     dposlab_fpga_after.pe_cfg1);
+
+    put_before_after("PE DATA B/A ",
+                     dposlab_fpga_before.pe_data,
+                     dposlab_fpga_after.pe_data);
+
+    put_before_after("PE PULL B/A ",
+                     dposlab_fpga_before.pe_pull0,
+                     dposlab_fpga_after.pe_pull0);
+
+    console_puts("STOCK SP                   ");
+    put_hex(dposlab_fpga_before.stock_sp);
+    console_putln("");
+
+    console_puts("FPGA EXEC SP               ");
+    put_hex(dposlab_fpga_before.exec_sp);
     console_putln("");
 
     console_putln("");
-    console_putln("FPGA HOOK HIT              CONFIRMED");
-    console_putln("POWER CYCLE TO CONTINUE");
+    console_putln("AUTO NEXT PAGE             ~3 SEC");
     console_present();
+    photo_delay();
 
     /*
-     * PoC breakpoint: stop here permanently so the return from
-     * FPGA_Start can be confirmed visually.
+     * Page 2: passive clock and CSI state.
      */
-    for (;;)
-        __asm__ volatile ("wfi");
+    console_clear();
+
+    console_putln("DPOSLAB FPGA DIFF 2/2");
+    console_putln("---------------------------");
+
+    put_before_after("CCU GATE0   ",
+                     dposlab_fpga_before.ccu_gate0,
+                     dposlab_fpga_after.ccu_gate0);
+
+    put_before_after("CCU RESET0  ",
+                     dposlab_fpga_before.ccu_reset0,
+                     dposlab_fpga_after.ccu_reset0);
+
+    put_before_after("CSI IF CFG  ",
+                     dposlab_fpga_before.csi_if_cfg,
+                     dposlab_fpga_after.csi_if_cfg);
+
+    put_before_after("CSI MODE    ",
+                     dposlab_fpga_before.csi_mode,
+                     dposlab_fpga_after.csi_mode);
+
+    put_before_after("CSI HSIZE   ",
+                     dposlab_fpga_before.csi_hsize,
+                     dposlab_fpga_after.csi_hsize);
+
+    put_before_after("CSI DEST    ",
+                     dposlab_fpga_before.csi_destination,
+                     dposlab_fpga_after.csi_destination);
+
+    put_before_after("CSI IRQ EN  ",
+                     dposlab_fpga_before.csi_irq_enable,
+                     dposlab_fpga_after.csi_irq_enable);
+
+    put_before_after("CSI STATUS  ",
+                     dposlab_fpga_before.csi_status,
+                     dposlab_fpga_after.csi_status);
+
+    console_putln("");
+
+    console_putln("PASSIVE MMIO SNAPSHOT      OK");
+    console_putln("AUTO CONTINUE              ~3 SEC");
+    console_present();
+    photo_delay();
+    {
+        const volatile struct dposlab_trace_record *first;
+        const volatile struct dposlab_trace_record *last;
+
+        first = dposlab_trace_first();
+        last = dposlab_trace_last();
+
+        console_clear();
+
+        console_putln("DPOSLAB TRACE STATUS 3/3");
+        console_putln("---------------------------");
+
+        console_puts("TRACE MAGIC                ");
+        put_hex(dposlab_trace.magic);
+        console_putln("");
+
+        console_puts("TRACE VERSION              ");
+        put_hex(dposlab_trace.version);
+        console_putln("");
+
+        console_puts("HEADER SIZE                ");
+        put_hex(dposlab_trace.header_size);
+        console_putln("");
+
+        console_puts("RECORD SIZE                ");
+        put_hex(dposlab_trace.record_size);
+        console_putln("");
+
+        console_puts("TRACE CAPACITY             ");
+        put_hex(dposlab_trace.capacity);
+        console_putln("");
+
+        console_puts("TRACE RECORDS              ");
+        put_hex(dposlab_trace.record_count);
+        console_putln("");
+
+        console_puts("TRACE DROPPED              ");
+        put_hex(dposlab_trace.dropped);
+        console_putln("");
+
+        console_puts("FIRST CHECKPOINT           ");
+        put_hex(first ? first->checkpoint : 0xFFFFFFFFU);
+        console_putln("");
+
+        console_puts("FIRST ADDRESS              ");
+        put_hex(first ? first->execution_address : 0U);
+        console_putln("");
+
+        console_puts("LAST CHECKPOINT            ");
+        put_hex(last ? last->checkpoint : 0xFFFFFFFFU);
+        console_putln("");
+
+        console_puts("LAST ADDRESS               ");
+        put_hex(last ? last->execution_address : 0U);
+        console_putln("");
+
+        console_putln("");
+        console_putln("AUTO CONTINUE              ~3 SEC");
+        console_present();
+        photo_delay();
+    }
+
 }
 
 int main(const dposlab_handoff_t *handoff)
@@ -171,6 +324,7 @@ int main(const dposlab_handoff_t *handoff)
     console_putln("STOCK API VALIDATE: OK"); console_present();
 #if DPOSLAB_MODE == 0
     marker = 0x4C414210U;
+    dposlab_trace_reset();
 
     console_putln("INSTALL FPGA RETURN HOOK    RUNNING");
     console_present();
