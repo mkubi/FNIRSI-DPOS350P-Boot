@@ -19,6 +19,9 @@ struct fpga_diag_result {
 void fpga_bus_safe_idle(void);
 void fpga_diag_read_id(struct fpga_diag_result *result);
 void fpga_diag_read_id_baseline(struct fpga_diag_result *result);
+/* Exact stock 0x400492E4 ID transaction: selector 0x01 and exactly four
+ * reads, with no diagnostic fifth read and no added settle delay. */
+void fpga_diag_read_id_stock_raw4(struct fpga_diag_result *result);
 
 struct fpga_capture_arm_probe_result {
     uint32_t pe_cfg0_before;
@@ -78,5 +81,94 @@ struct fpga_acq_position_result {
 /* Upstream preparation plus stock 0x18/0x14 position read, still no CSI. */
 void fpga_acq_position_probe(uint8_t mode_byte, uint32_t max_polls,
                              struct fpga_acq_position_result *result);
+
+struct fpga_smec_init_result {
+    uint32_t completed_jobs;
+    uint32_t attempts;
+    uint32_t poll64_count;
+    uint32_t poll65_count;
+    uint32_t result66;
+    uint16_t timing;
+    uint8_t current_job;
+    uint8_t status64;
+    uint8_t final65;
+    uint8_t echo68;
+    uint8_t status67;
+    int success;
+    int error;
+};
+
+/* HW-confirmed SMEC_Init startup baseline, jobs 1..7, with bounded polling. */
+int fpga_smec_init_baseline(struct fpga_smec_init_result *result);
+
+#define FPGA_SMEC_TRACE_VALUES 16U
+
+struct fpga_smec_poll_trace {
+    uint32_t count;
+    uint32_t changes;
+    uint32_t bit0_count;
+    uint8_t first;
+    uint8_t last;
+    uint8_t or_value;
+    uint8_t value_count;
+    uint8_t values[FPGA_SMEC_TRACE_VALUES];
+};
+
+struct fpga_smec_job_trace {
+    uint8_t index;
+    uint8_t echo68;
+    uint8_t status67;
+    uint8_t completed;
+    uint16_t timing;
+    uint16_t reserved;
+    uint32_t value;
+    uint32_t result66;
+    int error;
+    struct fpga_smec_poll_trace poll64;
+    struct fpga_smec_poll_trace poll65;
+};
+
+struct fpga_smec_job2_investigation {
+    struct fpga_smec_job_trace job1;
+    struct fpga_smec_job_trace job2;
+};
+
+/* Isolated one-shot jobs 1 and 2, no retries and no CSI side effects. */
+void fpga_smec_investigate_job2(struct fpga_smec_job2_investigation *result);
+
+struct fpga_smec_job2_recovery {
+    struct fpga_smec_job_trace job1;
+    struct fpga_smec_job_trace job2_normal;
+    struct fpga_smec_job_trace job2_rearmed;
+    uint8_t idle64_after_job1;
+    uint8_t idle65_after_job1;
+    uint8_t idle64_after_fail;
+    uint8_t idle65_after_fail;
+};
+
+/* Job 2 normal attempt followed, only on failure, by 0x67<-8 re-arm retry. */
+void fpga_smec_debug_job2_recovery(struct fpga_smec_job2_recovery *result);
+
+struct fpga_smec_stage24_pe_result {
+    struct fpga_smec_job_trace job1;
+    struct fpga_smec_job_trace job2;
+    uint32_t cfg0_before;
+    uint32_t cfg1_before;
+    uint32_t pull0_before;
+    uint32_t data_before;
+    uint32_t cfg0_after;
+    uint32_t cfg1_after;
+    uint32_t pull0_after;
+    uint32_t data_after;
+    uint8_t idle64_after_job1;
+    uint8_t idle65_after_job1;
+    uint8_t idle64_after_job2;
+    uint8_t idle65_after_job2;
+};
+
+/* Stage 24: reproduce the exact stock PE control-bus idle baseline, then
+ * submit one Job 1 and one Job 2 attempt. No retry, re-arm, CSI or DMA. */
+void fpga_smec_stage24_pe_cleanup_test(
+    struct fpga_smec_stage24_pe_result *result);
 
 #endif

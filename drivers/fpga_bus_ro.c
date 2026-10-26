@@ -425,6 +425,41 @@ void fpga_stream_activity_probe(uint32_t samples,
     fpga_bus_leave_csi_mode();
 }
 
+void fpga_diag_read_id_stock_raw4(struct fpga_diag_result *result)
+{
+    unsigned i;
+    uint32_t word = 0U;
+
+    result->pe_cfg0_before = PE_CFG0;
+    result->pe_cfg1_before = PE_CFG1;
+    result->pe_data_before = PE_DATA;
+    for (i = 0U; i < 5U; ++i)
+        result->raw[i] = 0U;
+
+    control_bus_init();
+    fpga_select_baseline(0x01U);
+
+    /* Stock 0x400492E4 calls the read primitive exactly four times. */
+    for (i = 0U; i < 4U; ++i) {
+        result->raw[i] = fpga_read_byte();
+        word = (word << 8) | result->raw[i];
+    }
+
+    result->id_word = word;
+    result->id_word_shifted = 0U;
+    result->present = word == FPGA_MAGIC;
+
+    data_bus_input();
+    pe_set(0U);
+    pe_clear(1U);
+    pe_set(2U);
+    pe_set(3U);
+
+    result->pe_cfg0_after = PE_CFG0;
+    result->pe_cfg1_after = PE_CFG1;
+    result->pe_data_after = PE_DATA;
+}
+
 void fpga_diag_read_id_baseline(struct fpga_diag_result *result)
 {
     unsigned i;
@@ -460,4 +495,392 @@ void fpga_diag_read_id_baseline(struct fpga_diag_result *result)
     result->pe_cfg0_after = PE_CFG0;
     result->pe_cfg1_after = PE_CFG1;
     result->pe_data_after = PE_DATA;
+}
+
+
+#define SMEC_POLL64_LIMIT 100000U
+#define SMEC_POLL65_LIMIT 500000U
+#define SMEC_OUTER_ATTEMPTS 4U
+
+static void fpga_write_u16_be(uint8_t selector, uint16_t value)
+{
+    fpga_select_command(selector);
+    fpga_write_payload((uint8_t)(value >> 8));
+    fpga_write_payload((uint8_t)value);
+}
+
+static void fpga_write_u32_be(uint8_t selector, uint32_t value)
+{
+    fpga_select_command(selector);
+    fpga_write_payload((uint8_t)(value >> 24));
+    fpga_write_payload((uint8_t)(value >> 16));
+    fpga_write_payload((uint8_t)(value >> 8));
+    fpga_write_payload((uint8_t)value);
+}
+
+static uint8_t fpga_read_selector_u8(uint8_t selector)
+{
+    fpga_select_command(selector);
+    return fpga_read_byte();
+}
+
+static uint32_t fpga_read_selector_u32_be(uint8_t selector)
+{
+    uint32_t value;
+    fpga_select_command(selector);
+    value = fpga_read_byte();
+    value = (value << 8) | fpga_read_byte();
+    value = (value << 8) | fpga_read_byte();
+    value = (value << 8) | fpga_read_byte();
+    return value;
+}
+
+static int smec_poll_bit0(uint8_t selector, uint32_t limit,
+                          uint32_t *count, uint8_t *final)
+{
+    uint32_t i;
+    uint8_t value = 0U;
+    for (i = 0U; i < limit; ++i) {
+        value = fpga_read_selector_u8(selector);
+        if ((value & 1U) != 0U) {
+            *count += i + 1U;
+            *final = value;
+            return 1;
+        }
+    }
+    *count += limit;
+    *final = value;
+    return 0;
+}
+
+static int smec_submit_job(uint8_t index, uint32_t value,
+                           struct fpga_smec_init_result *result)
+{
+    uint32_t outer;
+    uint16_t timing;
+    uint8_t returned_index;
+    uint8_t valid;
+
+    for (outer = 0U; outer < SMEC_OUTER_ATTEMPTS; ++outer) {
+        for (timing = 2000U; timing <= 3000U; timing += 100U) {
+            result->attempts += 1U;
+            result->timing = timing;
+            result->current_job = index;
+
+            fpga_write_u16_be(0x69U, timing);
+            fpga_select_command(0x6AU);
+            fpga_write_payload(index);
+            fpga_write_u32_be(0x6BU, value);
+
+            fpga_select_command(0x68U);
+            fpga_write_payload(1U);
+            if (!smec_poll_bit0(0x64U, SMEC_POLL64_LIMIT,
+                                &result->poll64_count,
+                                &result->status64)) {
+                result->error = -1;
+                continue;
+            }
+
+            fpga_select_command(0x68U);
+            fpga_write_payload(0U);
+            if (!smec_poll_bit0(0x65U, SMEC_POLL65_LIMIT,
+                                &result->poll65_count,
+                                &result->final65)) {
+                result->error = -2;
+                continue;
+            }
+
+            returned_index = fpga_read_selector_u8(0x68U);
+            valid = fpga_read_selector_u8(0x67U);
+            result->echo68 = returned_index;
+            result->status67 = valid;
+            if (returned_index == index && (valid & 1U) != 0U) {
+                result->result66 = fpga_read_selector_u32_be(0x66U);
+                result->error = 0;
+                return 1;
+            }
+            result->error = returned_index != index ? -3 : -4;
+        }
+    }
+    return 0;
+}
+
+int fpga_smec_init_baseline(struct fpga_smec_init_result *result)
+{
+    static const uint32_t values[7] = {
+        20U, 64U, 64U, 1000U, 100U, 950U, 200U
+    };
+    uint32_t i;
+    uint32_t *words;
+
+    if (!result)
+        return 0;
+    words = (uint32_t *)(void *)result;
+    for (i = 0U; i < sizeof(*result) / sizeof(*words); ++i)
+        words[i] = 0U;
+
+    control_bus_init();
+    fpga_select_command(0x67U);
+    fpga_write_payload(0x08U);
+
+    for (i = 0U; i < 7U; ++i) {
+        if (!smec_submit_job((uint8_t)(i + 1U), values[i], result)) {
+            fpga_bus_safe_idle();
+            return 0;
+        }
+        result->completed_jobs = i + 1U;
+    }
+
+    result->success = 1;
+    fpga_bus_safe_idle();
+    return 1;
+}
+
+
+#define SMEC_INVESTIGATE_POLL64 100000U
+#define SMEC_INVESTIGATE_POLL65 750000U
+
+static void smec_trace_reset(struct fpga_smec_poll_trace *trace)
+{
+    uint32_t i;
+    trace->count = 0U;
+    trace->changes = 0U;
+    trace->bit0_count = 0U;
+    trace->first = 0U;
+    trace->last = 0U;
+    trace->or_value = 0U;
+    trace->value_count = 0U;
+    for (i = 0U; i < FPGA_SMEC_TRACE_VALUES; ++i)
+        trace->values[i] = 0U;
+}
+
+static int smec_poll_trace(uint8_t selector, uint32_t limit,
+                           struct fpga_smec_poll_trace *trace)
+{
+    uint32_t i;
+    uint8_t value;
+    uint8_t previous = 0U;
+
+    smec_trace_reset(trace);
+    for (i = 0U; i < limit; ++i) {
+        value = fpga_read_selector_u8(selector);
+        if (i == 0U) {
+            trace->first = value;
+            trace->values[0] = value;
+            trace->value_count = 1U;
+        } else if (value != previous) {
+            trace->changes += 1U;
+            if (trace->value_count < FPGA_SMEC_TRACE_VALUES)
+                trace->values[trace->value_count++] = value;
+        }
+        trace->count = i + 1U;
+        trace->last = value;
+        trace->or_value |= value;
+        if ((value & 1U) != 0U) {
+            trace->bit0_count += 1U;
+            return 1;
+        }
+        previous = value;
+    }
+    return 0;
+}
+
+static int smec_trace_one_job(uint8_t index, uint32_t value,
+                              struct fpga_smec_job_trace *trace)
+{
+    trace->index = index;
+    trace->echo68 = 0U;
+    trace->status67 = 0U;
+    trace->completed = 0U;
+    trace->timing = 2000U;
+    trace->reserved = 0U;
+    trace->value = value;
+    trace->result66 = 0U;
+    trace->error = 0;
+    smec_trace_reset(&trace->poll64);
+    smec_trace_reset(&trace->poll65);
+
+    fpga_write_u16_be(0x69U, trace->timing);
+    fpga_select_command(0x6AU);
+    fpga_write_payload(index);
+    fpga_write_u32_be(0x6BU, value);
+    fpga_select_command(0x68U);
+    fpga_write_payload(1U);
+
+    if (!smec_poll_trace(0x64U, SMEC_INVESTIGATE_POLL64,
+                         &trace->poll64)) {
+        trace->error = -1;
+        return 0;
+    }
+
+    fpga_select_command(0x68U);
+    fpga_write_payload(0U);
+    if (!smec_poll_trace(0x65U, SMEC_INVESTIGATE_POLL65,
+                         &trace->poll65)) {
+        trace->error = -2;
+        return 0;
+    }
+
+    trace->echo68 = fpga_read_selector_u8(0x68U);
+    trace->status67 = fpga_read_selector_u8(0x67U);
+    if (trace->echo68 != index) {
+        trace->error = -3;
+        return 0;
+    }
+    if ((trace->status67 & 1U) == 0U) {
+        trace->error = -4;
+        return 0;
+    }
+    trace->result66 = fpga_read_selector_u32_be(0x66U);
+    trace->completed = 1U;
+    return 1;
+}
+
+void fpga_smec_investigate_job2(struct fpga_smec_job2_investigation *result)
+{
+    uint32_t *words;
+    uint32_t i;
+    volatile uint32_t delay;
+
+    if (!result)
+        return;
+    words = (uint32_t *)(void *)result;
+    for (i = 0U; i < sizeof(*result) / sizeof(*words); ++i)
+        words[i] = 0U;
+
+    control_bus_init();
+    fpga_select_command(0x67U);
+    fpga_write_payload(0x08U);
+
+    if (smec_trace_one_job(1U, 20U, &result->job1)) {
+        /* Fixed bounded inter-job gap. It is recorded as part of this exact
+         * Stage 22 experiment and is not claimed to be stock behavior. */
+        for (delay = 0U; delay < 24000U; ++delay)
+            __asm__ volatile ("nop");
+        (void)smec_trace_one_job(2U, 64U, &result->job2);
+    }
+    fpga_bus_safe_idle();
+}
+
+
+void fpga_smec_debug_job2_recovery(struct fpga_smec_job2_recovery *result)
+{
+    uint32_t *words;
+    uint32_t i;
+
+    if (!result)
+        return;
+    words = (uint32_t *)(void *)result;
+    for (i = 0U; i < sizeof(*result) / sizeof(*words); ++i)
+        words[i] = 0U;
+
+    control_bus_init();
+    fpga_select_command(0x67U);
+    fpga_write_payload(0x08U);
+
+    if (!smec_trace_one_job(1U, 20U, &result->job1)) {
+        fpga_bus_safe_idle();
+        return;
+    }
+
+    /* Passive selector snapshots immediately after the successful job. */
+    result->idle64_after_job1 = fpga_read_selector_u8(0x64U);
+    result->idle65_after_job1 = fpga_read_selector_u8(0x65U);
+
+    if (smec_trace_one_job(2U, 64U, &result->job2_normal)) {
+        fpga_bus_safe_idle();
+        return;
+    }
+
+    result->idle64_after_fail = fpga_read_selector_u8(0x64U);
+    result->idle65_after_fail = fpga_read_selector_u8(0x65U);
+
+    /* Diagnostic recovery hypothesis: repeat the confirmed SMEC_Init re-arm
+     * write before resubmitting exactly the same Job 2 transaction. */
+    fpga_select_command(0x67U);
+    fpga_write_payload(0x08U);
+    (void)smec_trace_one_job(2U, 64U, &result->job2_rearmed);
+    fpga_bus_safe_idle();
+}
+
+
+
+
+
+
+#define PE_PULL0 (*(volatile uint32_t *)0x01C208ACU)
+#define PE_CFG0_CONTROL_MASK 0x0000FFFFU
+#define PE_PULL_CONTROL_MASK 0x000000FFU
+
+static void control_bus_stock_idle_cleanup(void)
+{
+    uint32_t value;
+
+    /* Stock 0x40049110 configures PE0..PE3 as function 1 and disables
+     * their pull resistors. Preserve PE4..PE7 and their pull state. */
+    value = PE_CFG0;
+    value &= ~PE_CFG0_CONTROL_MASK;
+    value |= 0x00001111U;
+    PE_CFG0 = value;
+    barrier();
+
+    value = PE_PULL0;
+    value &= ~PE_PULL_CONTROL_MASK;
+    PE_PULL0 = value;
+    barrier();
+
+    /* Stock 0x400490DC leaves PE8..PE15 as inputs before the first bus
+     * primitive changes direction explicitly. */
+    PE_CFG1 = 0x00000000U;
+    barrier();
+
+    /* Stock idle levels: PE0 high, PE1 low. Leave PE2/PE3 unchanged, just
+     * as the stock helpers do after configuring their function. */
+    value = PE_DATA;
+    value |= 1U << 0;
+    value &= ~(1U << 1);
+    PE_DATA = value;
+    barrier();
+}
+
+void fpga_smec_stage24_pe_cleanup_test(
+    struct fpga_smec_stage24_pe_result *result)
+{
+    uint32_t *words;
+    uint32_t i;
+
+    if (!result)
+        return;
+
+    words = (uint32_t *)(void *)result;
+    for (i = 0U; i < sizeof(*result) / sizeof(*words); ++i)
+        words[i] = 0U;
+
+    result->cfg0_before = PE_CFG0;
+    result->cfg1_before = PE_CFG1;
+    result->pull0_before = PE_PULL0;
+    result->data_before = PE_DATA;
+
+    control_bus_stock_idle_cleanup();
+
+    result->cfg0_after = PE_CFG0;
+    result->cfg1_after = PE_CFG1;
+    result->pull0_after = PE_PULL0;
+    result->data_after = PE_DATA;
+
+    fpga_select_command(0x67U);
+    fpga_write_payload(0x08U);
+
+    if (!smec_trace_one_job(1U, 20U, &result->job1)) {
+        fpga_bus_safe_idle();
+        return;
+    }
+
+    result->idle64_after_job1 = fpga_read_selector_u8(0x64U);
+    result->idle65_after_job1 = fpga_read_selector_u8(0x65U);
+
+    (void)smec_trace_one_job(2U, 64U, &result->job2);
+    result->idle64_after_job2 = fpga_read_selector_u8(0x64U);
+    result->idle65_after_job2 = fpga_read_selector_u8(0x65U);
+    fpga_bus_safe_idle();
 }

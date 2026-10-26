@@ -133,7 +133,9 @@ void diag_ui_layout_test(void)
 }
 
 
-void diag_ui_capture_screen(int fpga_ok, int ready, uint32_t ready_status,
+void diag_ui_capture_screen(int fpga_ok, int smec_ok,
+                            const struct fpga_smec_init_result *smec,
+                            int ready, uint32_t ready_status,
                             uint32_t ready_polls, int clock_ok, int config_ok,
                             uint32_t buffer_reg, uint32_t status_before,
                             int done, uint32_t status_after,
@@ -144,22 +146,26 @@ void diag_ui_capture_screen(int fpga_ok, int ready, uint32_t ready_status,
                             uint32_t data2, uint32_t data3)
 {
     console_clear();
-    diag_ui_text_at(2U, 1U, "CSI STAGE 12 STOCK IF FORMAT");
+    diag_ui_text_at(2U, 1U, "CSI SMOKE + HW SMEC INIT BASELINE");
     diag_ui_text_at(2U, 3U, "CONTROL / CSI");
     diag_ui_text_at(66U, 3U, "BUFFER ANALYSIS");
 
     diag_ui_bool_at(2U, 5U, "FPGA ID:       ", fpga_ok);
-    diag_ui_bool_at(2U, 6U, "0A READY:      ", ready);
-    diag_ui_hex32_at(2U, 7U, "14 POSITION:   ", ready_status);
-    diag_ui_hex32_at(2U, 8U, "0A POLLS:      ", ready_polls);
-    diag_ui_bool_at(2U, 9U, "CSI CLOCK:     ", clock_ok);
-    diag_ui_bool_at(2U, 10U, "CSI CONFIG:    ", config_ok);
-    diag_ui_hex32_at(2U, 11U, "BUF0:          ", buffer_reg);
-    diag_ui_hex32_at(2U, 12U, "STATUS PRE:    ", status_before);
-    diag_ui_bool_at(2U, 13U, "CSI DONE:      ", done);
-    diag_ui_bool_at(2U, 14U, "CSI TIMEOUT:   ", ready && !done);
-    diag_ui_hex32_at(2U, 15U, "STATUS POST:   ", status_after);
-    diag_ui_hex32_at(2U, 16U, "MODE POST:     ", mode_after);
+    diag_ui_bool_at(2U, 6U, "SMEC INIT:     ", smec_ok);
+    diag_ui_hex32_at(2U, 7U, "SMEC JOBS:     ", smec->completed_jobs);
+    diag_ui_hex32_at(2U, 8U, "SMEC ERROR:    ", (uint32_t)smec->error);
+    diag_ui_hex32_at(2U, 9U, "SMEC 65 POLLS:", smec->poll65_count);
+    diag_ui_bool_at(2U, 10U, "0A READY:      ", ready);
+    diag_ui_hex32_at(2U, 11U, "14 POSITION:   ", ready_status);
+    diag_ui_bool_at(2U, 12U, "CSI CLOCK:     ", clock_ok);
+    diag_ui_bool_at(2U, 13U, "CSI CONFIG:    ", config_ok);
+    diag_ui_hex32_at(2U, 14U, "BUF0:          ", buffer_reg);
+    diag_ui_bool_at(2U, 15U, "CSI DONE:      ", done);
+    diag_ui_bool_at(2U, 16U, "CSI TIMEOUT:   ", ready && !done);
+    diag_ui_hex32_at(2U, 17U, "STATUS POST:   ", status_after);
+    (void)ready_polls;
+    (void)status_before;
+    (void)mode_after;
 
     diag_ui_bool_at(66U, 5U, "LEFT GUARD:   ", left_guard_ok);
     diag_ui_bool_at(66U, 6U, "RIGHT GUARD:  ", right_guard_ok);
@@ -171,7 +177,7 @@ void diag_ui_capture_screen(int fpga_ok, int ready, uint32_t ready_status,
     diag_ui_hex32_at(66U, 13U, "DATA 08:      ", data2);
     diag_ui_hex32_at(66U, 14U, "DATA 0C:      ", data3);
 
-    diag_ui_text_at(2U, 19U, "95M+10M CLOCKS - FPGA22=2134 - BOUNDED");
+    diag_ui_text_at(2U, 19U, "SMEC JOBS 1-7 - STOCK CSI REGS - BOUNDED");
     diag_ui_text_at(2U, 21U, "POWER CYCLE TO EXIT");
 }
 
@@ -295,5 +301,140 @@ void diag_ui_stream_activity_screen(
     diag_ui_hex32_at(2U, 20U, "EVER HIGH:     ", activity->high_mask);
     diag_ui_hex32_at(2U, 21U, "EVER LOW:      ", activity->low_mask);
     diag_ui_text_at(2U, 23U, "POWER CYCLE TO EXIT");
+    console_present();
+}
+
+
+static void diag_ui_job_trace(unsigned column, unsigned row,
+                              const char *title,
+                              const struct fpga_smec_job_trace *job)
+{
+    diag_ui_text_at(column, row, title);
+    diag_ui_hex32_at(column, row + 1U, "ERROR:   ", (uint32_t)job->error);
+    diag_ui_hex32_at(column, row + 2U, "P64 CNT: ", job->poll64.count);
+    diag_ui_hex32_at(column, row + 3U, "P64 F/L: ",
+                     ((uint32_t)job->poll64.first << 8) | job->poll64.last);
+    diag_ui_hex32_at(column, row + 4U, "P65 CNT: ", job->poll65.count);
+    diag_ui_hex32_at(column, row + 5U, "P65 F/L: ",
+                     ((uint32_t)job->poll65.first << 8) | job->poll65.last);
+    diag_ui_hex32_at(column, row + 6U, "P65 OR:  ", job->poll65.or_value);
+    diag_ui_hex32_at(column, row + 7U, "P65 CHG: ", job->poll65.changes);
+    diag_ui_hex32_at(column, row + 8U, "E68/S67: ",
+                     ((uint32_t)job->echo68 << 8) | job->status67);
+    diag_ui_hex32_at(column, row + 9U, "RESULT66:", job->result66);
+}
+
+void diag_ui_job2_screen(const struct fpga_diag_result *fpga,
+                         const struct fpga_smec_job2_investigation *trace)
+{
+    console_clear();
+    diag_ui_text_at(2U, 1U, "SMEC JOB2 ISOLATED INVESTIGATION");
+    diag_ui_bool_at(2U, 3U, "FPGA ID: ", fpga->present);
+    diag_ui_job_trace(2U, 5U, "JOB1 VALUE 20", &trace->job1);
+    diag_ui_job_trace(66U, 5U, "JOB2 VALUE 64", &trace->job2);
+    diag_ui_text_at(2U, 18U, "ONE ATTEMPT - TIMING 2000 - BOUNDED POLLS");
+    diag_ui_text_at(2U, 20U, "NO CSI ACCESS - POWER CYCLE TO EXIT");
+    console_present();
+}
+
+
+static void diag_ui_job_compact(unsigned column, unsigned row,
+                                const char *title,
+                                const struct fpga_smec_job_trace *job)
+{
+    diag_ui_text_at(column, row, title);
+    diag_ui_hex32_at(column, row + 1U, "ERROR:  ", (uint32_t)job->error);
+    diag_ui_hex32_at(column, row + 2U, "64 CNT: ", job->poll64.count);
+    diag_ui_hex32_at(column, row + 3U, "65 CNT: ", job->poll65.count);
+    diag_ui_hex32_at(column, row + 4U, "65 F/L: ",
+                     ((uint32_t)job->poll65.first << 8) | job->poll65.last);
+    diag_ui_hex32_at(column, row + 5U, "65 OR:  ", job->poll65.or_value);
+    diag_ui_hex32_at(column, row + 6U, "E68/S67:",
+                     ((uint32_t)job->echo68 << 8) | job->status67);
+    diag_ui_hex32_at(column, row + 7U, "RESULT: ", job->result66);
+}
+
+void diag_ui_job2_recovery_screen(const struct fpga_diag_result *fpga,
+                                  const struct fpga_smec_job2_recovery *trace)
+{
+    uint32_t idle1 = ((uint32_t)trace->idle64_after_job1 << 8) |
+                     trace->idle65_after_job1;
+    uint32_t idle2 = ((uint32_t)trace->idle64_after_fail << 8) |
+                     trace->idle65_after_fail;
+    console_clear();
+    diag_ui_text_at(2U, 1U, "SMEC JOB2 RE-ARM A/B DEBUG");
+    diag_ui_bool_at(2U, 3U, "FPGA ID: ", fpga->present);
+    diag_ui_job_compact(2U, 5U, "JOB1 NORMAL", &trace->job1);
+    diag_ui_job_compact(44U, 5U, "JOB2 NORMAL", &trace->job2_normal);
+    diag_ui_job_compact(82U, 5U, "JOB2 67=8 REARM", &trace->job2_rearmed);
+    diag_ui_hex32_at(2U, 14U, "IDLE 64/65 AFTER JOB1: ", idle1);
+    diag_ui_hex32_at(2U, 15U, "IDLE 64/65 AFTER FAIL: ", idle2);
+    diag_ui_text_at(2U, 18U, "STOCK ORDER VERIFIED: 69,6A,6B,68=1,64,68=0,65,68,67,66");
+    diag_ui_text_at(2U, 20U, "NO CSI ACCESS - POWER CYCLE TO EXIT");
+    console_present();
+}
+
+
+
+
+void diag_ui_stage24_pe_screen(const struct fpga_diag_result *fpga,
+                               const struct fpga_smec_stage24_pe_result *trace)
+{
+    uint32_t idle1 = ((uint32_t)trace->idle64_after_job1 << 8) |
+                     trace->idle65_after_job1;
+    uint32_t idle2 = ((uint32_t)trace->idle64_after_job2 << 8) |
+                     trace->idle65_after_job2;
+
+    console_clear();
+    diag_ui_text_at(2U, 1U, "STAGE 24 STOCK PE IDLE CLEANUP");
+    diag_ui_bool_at(2U, 3U, "FPGA ID POST: ", fpga->present);
+
+    diag_ui_hex32_at(2U, 5U, "CFG0 BEFORE: ", trace->cfg0_before);
+    diag_ui_hex32_at(2U, 6U, "CFG0 AFTER:  ", trace->cfg0_after);
+    diag_ui_hex32_at(2U, 7U, "CFG1 BEFORE: ", trace->cfg1_before);
+    diag_ui_hex32_at(2U, 8U, "CFG1 AFTER:  ", trace->cfg1_after);
+    diag_ui_hex32_at(2U, 9U, "PULL BEFORE: ", trace->pull0_before);
+    diag_ui_hex32_at(2U, 10U, "PULL AFTER:  ", trace->pull0_after);
+
+    diag_ui_job_compact(2U, 12U, "JOB1 AFTER PE CLEANUP", &trace->job1);
+    diag_ui_job_compact(66U, 12U, "JOB2 AFTER PE CLEANUP", &trace->job2);
+
+    diag_ui_hex32_at(2U, 21U, "IDLE 64/65 JOB1: ", idle1);
+    diag_ui_hex32_at(66U, 21U, "IDLE 64/65 JOB2: ", idle2);
+    diag_ui_text_at(2U, 23U, "NO STOCK CALL - NO RETRY - NO REARM - NO CSI");
+    console_present();
+}
+
+
+void diag_ui_stage25_raw4_screen(
+    const struct fpga_diag_result *fpga,
+    const struct fpga_smec_stage24_pe_result *trace)
+{
+    uint32_t raw01 = ((uint32_t)fpga->raw[0] << 24) |
+                     ((uint32_t)fpga->raw[1] << 16) |
+                     ((uint32_t)fpga->raw[2] << 8) |
+                     fpga->raw[3];
+    uint32_t idle1 = ((uint32_t)trace->idle64_after_job1 << 8) |
+                     trace->idle65_after_job1;
+    uint32_t idle2 = ((uint32_t)trace->idle64_after_job2 << 8) |
+                     trace->idle65_after_job2;
+
+    console_clear();
+    diag_ui_text_at(2U, 1U, "STAGE 25 EXACT STOCK ID RAW4");
+    diag_ui_bool_at(2U, 3U, "RAW4 ID MATCH: ", fpga->present);
+    diag_ui_hex32_at(2U, 4U, "RAW4 BYTES:    ", raw01);
+    diag_ui_hex32_at(2U, 5U, "RAW5 SLOT:     ", fpga->raw[4]);
+
+    diag_ui_hex32_at(2U, 7U, "CFG0 AFTER:    ", trace->cfg0_after);
+    diag_ui_hex32_at(2U, 8U, "CFG1 AFTER:    ", trace->cfg1_after);
+    diag_ui_hex32_at(2U, 9U, "PULL AFTER:    ", trace->pull0_after);
+
+    diag_ui_job_compact(2U, 11U, "JOB1 AFTER STOCK RAW4", &trace->job1);
+    diag_ui_job_compact(66U, 11U, "JOB2 AFTER STOCK RAW4", &trace->job2);
+
+    diag_ui_hex32_at(2U, 20U, "IDLE 64/65 JOB1: ", idle1);
+    diag_ui_hex32_at(66U, 20U, "IDLE 64/65 JOB2: ", idle2);
+    diag_ui_text_at(2U, 22U, "SELECT 01 + EXACTLY 4 READS - NO SETTLE DELAY");
+    diag_ui_text_at(2U, 23U, "NO RETRY - NO REARM - NO CSI - POWER CYCLE");
     console_present();
 }

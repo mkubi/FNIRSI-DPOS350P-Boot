@@ -15,7 +15,7 @@ INCLUDES := \
     -I$(ROOT)/drivers \
     -I$(ROOT)/ui
 
-CSI_DIAG_STAGE ?= 19
+CSI_DIAG_STAGE ?= 25
 
 CFLAGS := \
     -O2 \
@@ -37,6 +37,10 @@ CFLAGS := \
 SOURCES_C := \
     main.c \
     capture_test.c \
+    job2_test.c \
+    job2_recovery_test.c \
+    stage24_fpga_preinit_test.c \
+    stage25_stock_id_raw4_test.c \
     fpga_primitive_test.c \
     ui_adapter.c \
     $(ROOT)/arch/r11/cache.c \

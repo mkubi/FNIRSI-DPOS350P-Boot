@@ -4,7 +4,7 @@
 #include "../../arch/r11/cache.h"
 
 #ifndef CSI_DIAG_STAGE
-#define CSI_DIAG_STAGE 19
+#define CSI_DIAG_STAGE 25
 #endif
 
 void diag_ui_init(void);
@@ -17,6 +17,10 @@ void diag_ui_layout_test(void);
 void csi_stage3b_main(void);
 void fpga_primitive_test_main(void);
 void fpga_stream_activity_probe_main(void);
+void fpga_smec_job2_test_main(void);
+void fpga_smec_job2_recovery_main(void);
+void fpga_smec_stage24_main(void);
+void fpga_smec_stage25_main(void);
 
 #if CSI_DIAG_STAGE == 1
 static void show_snapshot(const struct r11_csi_snapshot *s)
@@ -40,7 +44,17 @@ static void show_snapshot(const struct r11_csi_snapshot *s)
 
 void main(void)
 {
-#if CSI_DIAG_STAGE == 19
+#if CSI_DIAG_STAGE == 25
+    fpga_smec_stage25_main();
+#elif CSI_DIAG_STAGE == 24
+    fpga_smec_stage24_main();
+#elif CSI_DIAG_STAGE == 23
+    fpga_smec_job2_recovery_main();
+#elif CSI_DIAG_STAGE == 22
+    fpga_smec_job2_test_main();
+#elif CSI_DIAG_STAGE == 21
+    csi_stage3b_main();
+#elif CSI_DIAG_STAGE == 19
     fpga_stream_activity_probe_main();
 #else
 #if CSI_DIAG_STAGE == 9

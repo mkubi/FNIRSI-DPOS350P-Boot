@@ -33,17 +33,19 @@ dposdbg_screenshot_hook:
 
 .global dposdbg_smec_init_wrapper
 .extern dposdbg_capture_smec_init
+.extern dposdbg_smec_trace_begin
+.extern dposdbg_smec_trace_end
 .extern dposdbg_capture_checkpoint
 .type dposdbg_smec_init_wrapper, %function
 dposdbg_smec_init_wrapper:
     /* Preserve the stock caller state and return value around the snapshot. */
     push    {r0-r3, r12, lr}
+    bl      dposdbg_smec_trace_begin
     ldr     r12, =STOCK_SMEC_INIT
     blx     r12
     str     r0, [sp]
+    bl      dposdbg_smec_trace_end
     bl      dposdbg_capture_smec_init
-    mov     r0, #1
-    bl      dposdbg_capture_checkpoint
     pop     {r0-r3, r12, lr}
     bx      lr
 .size dposdbg_smec_init_wrapper, . - dposdbg_smec_init_wrapper

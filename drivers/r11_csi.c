@@ -122,14 +122,15 @@ int r11_csi_configure_no_capture(struct r11_csi_config_result *r)
      * first capture will not depend on inherited or reset state.
      * Capture mode remains zero throughout this test.
      */
-    r->geo0_expected = 0x05000000U;
-    r->geo1_expected = 0x01E00000U;
-    r->geo2_expected = 0x01400280U;
+    /* HW-confirmed stock values captured inside a completed bank-0 window. */
+    r->geo0_expected = 0x18000000U;
+    r->geo1_expected = 0x00010000U;
+    r->geo2_expected = 0x2374287CU;
     r->irq_expected = R11_CSI_DONE;
 
     mmio_write32(CSI_REG_MODE, 0U);
-    mmio_write32(CSI_REG_IF_CFG, 0x00060000U);
-    mmio_write32(CSI_REG_HSIZE,  0x00000800U);
+    mmio_write32(CSI_REG_IF_CFG, 0x01060400U);
+    mmio_write32(CSI_REG_HSIZE,  0x00000A00U);
     mmio_write32(CSI_REG_GEO0, r->geo0_expected);
     mmio_write32(CSI_REG_GEO1, r->geo1_expected);
     mmio_write32(CSI_REG_GEO2, r->geo2_expected);

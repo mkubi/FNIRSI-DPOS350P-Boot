@@ -433,9 +433,6 @@ static uint32_t trace_file_object[STOCK_FILE_OBJECT_SIZE / sizeof(uint32_t)] = {
 
 static const char trace_path[] = "/DPOSDBG.TRC";
 static const char smec_init_path[] = "/SMECINIT.BIN";
-static const char init_check_path[] = "/INITCHK.BIN";
-static const char csi_window_path[] = "/CSIWIN.BIN";
-static const char csi_buffer_path[] = "/CSIBUF.BIN";
 
 __attribute__((section(".data"), used, aligned(4)))
 static dposdbg_job_record_t current_job = {
@@ -445,6 +442,10 @@ static dposdbg_job_record_t current_job = {
 
 __attribute__((section(".data"), used, aligned(4)))
 static uint32_t current_selector = 0U;
+/* Trace only the first stock SMEC_Init call.  Primitive hooks remain
+ * transparent outside this explicitly bounded startup window. */
+static uint32_t smec_trace_active = 0U;
+static uint32_t smec_trace_captured = 0U;
 
 __attribute__((section(".data"), used, aligned(4)))
 static uint32_t job_active = 0U;
@@ -659,9 +660,33 @@ static void handle_read(uint32_t byte, uint32_t call_site)
     }
 }
 
+void dposdbg_smec_trace_begin(void)
+{
+    if (smec_trace_captured != 0U)
+        return;
+    clear_current_job();
+    current_selector = 0U;
+    job_active = 0U;
+    smec_trace_active = 1U;
+}
+
+void dposdbg_smec_trace_end(void)
+{
+    if (smec_trace_active == 0U)
+        return;
+    if (job_active != 0U)
+        commit_current_job(JOB_FLAG_TRUNCATED);
+    smec_trace_active = 0U;
+    smec_trace_captured = 1U;
+    current_selector = 0U;
+    job_active = 0U;
+}
+
 void dposdbg_trace_primitive(uint32_t event, uint32_t value,
                              uint32_t call_site)
 {
+    if (smec_trace_active == 0U)
+        return;
     if (event == DPOSDBG_EVENT_CSI_DESTINATION) {
         uint32_t index = dposdbg_trace.write_index;
         uint32_t slot = index % DPOSDBG_TRACE_CAPACITY;
@@ -738,48 +763,6 @@ static int smec_init_export(void)
     return result != 0 ? result : close_result;
 }
 
-static int init_check_export(void)
-{
-    stock_f_open_t stock_f_open = (stock_f_open_t)(uintptr_t)STOCK_F_OPEN;
-    stock_f_write_t stock_f_write = (stock_f_write_t)(uintptr_t)STOCK_F_WRITE;
-    stock_f_close_t stock_f_close = (stock_f_close_t)(uintptr_t)STOCK_F_CLOSE;
-    int result, close_result;
-    result = stock_f_open(trace_file_object, init_check_path, STOCK_FA_WRITE_CREATE);
-    if (result != 0) return result;
-    result = stock_f_write(trace_file_object, &init_check_snapshot,
-                           (uint32_t)sizeof(init_check_snapshot), 0);
-    close_result = stock_f_close(trace_file_object);
-    return result != 0 ? result : close_result;
-}
-
-static int csi_window_export(void)
-{
-    stock_f_open_t fo=(stock_f_open_t)(uintptr_t)STOCK_F_OPEN;
-    stock_f_write_t fw=(stock_f_write_t)(uintptr_t)STOCK_F_WRITE;
-    stock_f_close_t fc=(stock_f_close_t)(uintptr_t)STOCK_F_CLOSE;
-    int r,cr;
-    r=fo(trace_file_object,csi_window_path,STOCK_FA_WRITE_CREATE); if(r!=0)return r;
-    r=fw(trace_file_object,&csi_window,(uint32_t)sizeof(csi_window),0);
-    cr=fc(trace_file_object); return r!=0?r:cr;
-}
-
-static int csi_buffer_export(void)
-{
-    stock_f_open_t fo = (stock_f_open_t)(uintptr_t)STOCK_F_OPEN;
-    stock_f_write_t fw = (stock_f_write_t)(uintptr_t)STOCK_F_WRITE;
-    stock_f_close_t fc = (stock_f_close_t)(uintptr_t)STOCK_F_CLOSE;
-    int result;
-    int close_result;
-
-    result = fo(trace_file_object, csi_buffer_path, STOCK_FA_WRITE_CREATE);
-    if (result != 0)
-        return result;
-    result = fw(trace_file_object, &csi_buffer,
-                (uint32_t)sizeof(csi_buffer), 0);
-    close_result = fc(trace_file_object);
-    return result != 0 ? result : close_result;
-}
-
 void dposdbg_after_screenshot(void)
 {
     /* Preserve a partial in-flight transaction in the exported snapshot. */
@@ -787,9 +770,9 @@ void dposdbg_after_screenshot(void)
         commit_current_job(JOB_FLAG_TRUNCATED);
 
     dposdbg_trace.export_count += 1U;
+    /* SMEC-only investigation profile.  Historical CSI and startup
+     * checkpoint snapshots remain in source for reference, but are no longer
+     * exported or hooked by this build. */
     (void)trace_export();
     (void)smec_init_export();
-    (void)init_check_export();
-    (void)csi_window_export();
-    (void)csi_buffer_export();
 }

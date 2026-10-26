@@ -7,6 +7,7 @@
 #define TEST_BASE       0x42000000U
 #define GUARD_SIZE      0x00001000U
 #define CAPTURE_SIZE    0x00002134U
+#define ACTIVE_PAYLOAD_SIZE 0x00001800U
 #define CSI_POLL_ITERATIONS 24000000U
 #define LEFT_GUARD      ((volatile uint8_t *)TEST_BASE)
 #define CAPTURE_BUFFER  ((volatile uint8_t *)(TEST_BASE + GUARD_SIZE))
@@ -16,7 +17,9 @@
 #define RIGHT_SENTINEL  0xA5U
 
 void diag_ui_init(void);
-void diag_ui_capture_screen(int fpga_ok, int ready, uint32_t ready_status,
+void diag_ui_capture_screen(int fpga_ok, int smec_ok,
+                            const struct fpga_smec_init_result *smec,
+                            int ready, uint32_t ready_status,
                             uint32_t ready_polls, int clock_ok, int config_ok,
                             uint32_t buffer_reg, uint32_t status_before,
                             int done, uint32_t status_after,
@@ -55,6 +58,7 @@ void csi_stage3b_main(void)
     struct fpga_diag_result fpga;
     struct ms5351_stock_result clock;
     struct fpga_acq_position_result position;
+    struct fpga_smec_init_result smec;
     struct r11_csi_init_result init;
     struct r11_csi_config_result config;
     uint32_t status_before;
@@ -64,6 +68,7 @@ void csi_stage3b_main(void)
     uint32_t first = 0xFFFFFFFFU;
     uint32_t last = 0xFFFFFFFFU;
     uint32_t i;
+    int smec_ok;
     int init_ok;
     int config_ok;
     int done;
@@ -77,13 +82,30 @@ void csi_stage3b_main(void)
     if (!clock.completed)
         fpga.present = 0;
 
+    /* Stage 21 changes one variable: reproduce the seven HW-confirmed
+     * SMEC_Init startup jobs before the otherwise unchanged CSI smoke test. */
+    smec_ok = fpga.present ? fpga_smec_init_baseline(&smec) : 0;
+
     /* Stage 5 HW-confirmed upstream preparation.  Do not touch CSI unless
      * FPGA 0x0A bit 0 reports ready within the stock 2500-poll window. */
-    fpga_acq_position_probe(4U, 2500U, &position);
+    if (smec_ok)
+        fpga_acq_position_probe(4U, 2500U, &position);
+    else {
+        position.ready.ready = 0;
+        position.ready.polls = 0U;
+        position.ready.final_status = 0U;
+        position.ready.mode_byte = 4U;
+        position.valid_status = 0U;
+        position.position = 0U;
+        position.valid = 0;
+    }
     if (position.ready.ready && position.valid) {
         /* RAW_BANK_SIZE is 0x2134 bytes.  Stock 0x400405E0 programs 0x22
          * immediately before the per-bank capture loop, using the same
          * big-endian 16-bit command convention. */
+        /* Keep the previously reconstructed FPGA-side quantity command for
+         * this first standalone run. Success is judged by CSI completion and
+         * RAM modification, not by PE_DATA transitions. */
         fpga_set_stream_quantity((uint16_t)CAPTURE_SIZE);
         fpga_prepare_csi_bank0_position(position.position);
     }
@@ -123,6 +145,8 @@ void csi_stage3b_main(void)
         cache_invalidate_range(TEST_BASE,
                                GUARD_SIZE + CAPTURE_SIZE + GUARD_SIZE);
 
+    /* Stock HW changed the first 0x1800 bytes. Scan the full 0x2134 slot. */
+    (void)ACTIVE_PAYLOAD_SIZE;
     for (i = 0U; i < CAPTURE_SIZE; ++i) {
         if (CAPTURE_BUFFER[i] != SENTINEL) {
             if (changed == 0U)
@@ -132,7 +156,7 @@ void csi_stage3b_main(void)
         }
     }
 
-    diag_ui_capture_screen(fpga.present,
+    diag_ui_capture_screen(fpga.present, smec_ok, &smec,
                            position.ready.ready && position.valid,
                            position.position, position.ready.polls,
                            init_ok, config_ok,
