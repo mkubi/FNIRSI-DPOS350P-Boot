@@ -31,6 +31,7 @@ SOURCES_C := \
     loader/custom.c \
     loader/debug_exe2.c \
     loader/dposdbg.c \
+    loader/dposlab.c \
     loader/original.c \
     loader/start.c \
     loader/boot_targets.c \
@@ -40,10 +41,11 @@ SOURCES_C := \
     main.c
 SOURCES_S := \
     arch/r11/start.S \
-    loader/jump.S
+    loader/jump.S \
+    loader/dposlab_jump.S
 
 OBJECTS := $(patsubst %.c,$(BUILD)/%.o,$(SOURCES_C)) $(patsubst %.S,$(BUILD)/%.o,$(SOURCES_S))
-.PHONY: all clean check stage1 stage1-clean dposdbg dposdbg-clean
+.PHONY: all clean check stage1 stage1-clean dposdbg dposdbg-clean dposlab dposlab-clean
 
 stage1:
 	$(MAKE) -C stage1
@@ -56,6 +58,12 @@ dposdbg:
 
 dposdbg-clean:
 	$(MAKE) -C apps/dposdbg clean
+
+dposlab:
+	$(MAKE) -C apps/dposlab
+
+dposlab-clean:
+	$(MAKE) -C apps/dposlab clean
 
 all: check $(TARGET).bin $(TARGET).lst $(STAGE2_SLOT)
 	$(SIZE) $(TARGET).elf

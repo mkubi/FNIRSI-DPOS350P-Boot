@@ -12,7 +12,7 @@ const char *boot_target_name(boot_target_id_t id)
 {
     switch (id) {
     case BOOT_TARGET_DEBUG_EXE2_FAT:
-        return "DEBUG EXE2 FROM FAT";
+        return "DPOSLAB / DEBUG EXE2";
     case BOOT_TARGET_CUSTOM:
         return "CUSTOM APPLICATION";
     case BOOT_TARGET_ORIGINAL_SCOPE:
