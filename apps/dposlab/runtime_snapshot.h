@@ -47,4 +47,10 @@ void dposlab_capture_after(uint32_t cpsr,
 
 uint32_t dposlab_gpr_changed_mask(void);
 
+void dposlab_capture_checkpoint(
+    uint32_t checkpoint,
+    uint32_t execution_address,
+    uint32_t cpsr,
+    const struct dposlab_cpu_frame *frame);
+
 #endif

@@ -94,6 +94,22 @@ void dposlab_capture_after(uint32_t cpsr,
         &dposlab_fpga_after);
 }
 
+void dposlab_capture_checkpoint(
+    uint32_t checkpoint,
+    uint32_t execution_address,
+    uint32_t cpsr,
+    const struct dposlab_cpu_frame *frame)
+{
+    struct dposlab_runtime_snapshot snapshot;
+
+    capture_snapshot(&snapshot, cpsr, frame, 1U);
+
+    dposlab_trace_append(
+        checkpoint,
+        execution_address,
+        &snapshot);
+}
+
 uint32_t dposlab_gpr_changed_mask(void)
 {
     uint32_t i;

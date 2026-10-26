@@ -14,13 +14,21 @@ enum dposlab_checkpoint {
     DPOSLAB_CP_FPGA_START_RETURN = 2U,
 
     /*
-     * Reserved for future internal FPGA_Start checkpoints.
+     * Internal FPGA_Start checkpoints.
      */
+    DPOSLAB_CP_FPGA_EARLY_INIT   = 0x0FU,
     DPOSLAB_CP_FPGA_PHASE_A      = 0x10U,
     DPOSLAB_CP_FPGA_PHASE_B      = 0x11U,
     DPOSLAB_CP_FPGA_CLOCK_95M    = 0x12U,
     DPOSLAB_CP_FPGA_CLOCK_10M    = 0x13U,
-    DPOSLAB_CP_FPGA_PHASE_C      = 0x14U
+    DPOSLAB_CP_FPGA_PHASE_C      = 0x14U,
+
+    DPOSLAB_CP_CSI_AFTER_CLOCK_RESET = 0x20U,
+    DPOSLAB_CP_CSI_AFTER_BASE_BIND   = 0x21U,
+    DPOSLAB_CP_CSI_AFTER_ENABLE_A    = 0x22U,
+    DPOSLAB_CP_CSI_AFTER_ENABLE_B    = 0x23U,
+    DPOSLAB_CP_CSI_AFTER_CONFIG_8000 = 0x24U,
+    DPOSLAB_CP_CSI_AFTER_PINMUX      = 0x25U
 };
 
 struct dposlab_trace_record {

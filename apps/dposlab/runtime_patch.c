@@ -2,17 +2,57 @@
 #include "runtime_patch.h"
 #include "../../arch/r11/cache.h"
 
-#define STOCK_FPGA_CALL_SITE          0x40034738U
-#define STOCK_FPGA_CALL_ORIGINAL      0xEB005292U
-#define DPOSLAB_FPGA_VENEER           0x40055B4CU
+#define STOCK_FPGA_CALL_SITE         0x40034738U
+#define STOCK_FPGA_CALL_ORIGINAL     0xEB005292U
+#define DPOSLAB_FPGA_VENEER          0x40055B4CU
 
-#define STOCK_SCREENSHOT_SITE         0x400350F0U
-#define STOCK_SCREENSHOT_ORIGINAL     0xEAFFFC63U
-#define DPOSLAB_SCREENSHOT_VENEER     0x40055AD4U
+#define STOCK_FPGA_PHASE_A_SITE      0x400491A8U
+#define STOCK_FPGA_PHASE_A_ORIGINAL  0xEBFFFFB9U
+#define DPOSLAB_FPGA_PHASE_A_VENEER  0x40055ADCU
 
-#define ARM_LDR_PC_PC_MINUS_4         0xE51FF004U
+#define STOCK_FPGA_EARLY_SITE        0x40049194U
+#define STOCK_FPGA_EARLY_ORIGINAL    0xEB0073CBU
+#define DPOSLAB_FPGA_EARLY_VENEER    0x40055AE4U
+
+#define STOCK_CSI_CLOCK_RESET_SITE      0x400660D4U
+#define STOCK_CSI_CLOCK_RESET_ORIGINAL  0xEBFFFF9BU
+#define DPOSLAB_CSI_CLOCK_RESET_VENEER  0x40055AECU
+
+#define STOCK_CSI_BASE_BIND_SITE         0x400660E4U
+#define STOCK_CSI_BASE_BIND_ORIGINAL     0xEBFFFDF4U
+#define DPOSLAB_CSI_BASE_BIND_VENEER     0x40055AF4U
+
+#define STOCK_CSI_ENABLE_A_SITE           0x400660ECU
+#define STOCK_CSI_ENABLE_A_ORIGINAL       0xEBFFFEDDU
+#define DPOSLAB_CSI_ENABLE_A_VENEER       0x40055AFCU
+
+#define STOCK_CSI_ENABLE_B_SITE           0x400660F4U
+#define STOCK_CSI_ENABLE_B_ORIGINAL       0xEBFFFEDAU
+#define DPOSLAB_CSI_ENABLE_B_VENEER       0x40055B04U
+
+#define STOCK_CSI_CONFIG_8000_SITE         0x400660FCU
+#define STOCK_CSI_CONFIG_8000_ORIGINAL     0xEBFFFFA9U
+#define DPOSLAB_CSI_CONFIG_8000_VENEER     0x40055B0CU
+
+#define STOCK_CSI_PINMUX_SITE              0x40066060U
+#define STOCK_CSI_PINMUX_ORIGINAL          0xEBFFFFA4U
+#define DPOSLAB_CSI_PINMUX_VENEER          0x40055B14U
+
+#define STOCK_SCREENSHOT_SITE        0x400350F0U
+#define STOCK_SCREENSHOT_ORIGINAL    0xEAFFFC63U
+#define DPOSLAB_SCREENSHOT_VENEER    0x40055AD4U
+
+#define ARM_LDR_PC_PC_MINUS_4        0xE51FF004U
 
 extern void dposlab_fpga_start_hook(void);
+extern void dposlab_fpga_phase_a_hook(void);
+extern void dposlab_fpga_early_hook(void);
+extern void dposlab_csi_clock_reset_hook(void);
+extern void dposlab_csi_base_bind_hook(void);
+extern void dposlab_csi_enable_a_hook(void);
+extern void dposlab_csi_enable_b_hook(void);
+extern void dposlab_csi_config_8000_hook(void);
+extern void dposlab_csi_pinmux_hook(void);
 extern void dposlab_screenshot_hook(void);
 
 static volatile uint32_t *word_at(uint32_t address)
@@ -34,8 +74,13 @@ static int encode_arm_branch(uint32_t site,
     if ((displacement & 3) != 0)
         return 0;
 
+    /*
+     * ARM B/BL immediate range:
+     *
+     *     -0x02000000 .. +0x01FFFFFC
+     */
     if (displacement < -0x02000000 ||
-        displacement >  0x01FFFFFC)
+        displacement > 0x01FFFFFC)
         return 0;
 
     word_offset = displacement >> 2;
@@ -51,7 +96,9 @@ static int encode_arm_branch(uint32_t site,
 static void install_absolute_veneer(uint32_t veneer_address,
                                     uint32_t target_address)
 {
-    volatile uint32_t *veneer = word_at(veneer_address);
+    volatile uint32_t *veneer;
+
+    veneer = word_at(veneer_address);
 
     veneer[0] = ARM_LDR_PC_PC_MINUS_4;
     veneer[1] = target_address;
@@ -60,63 +107,356 @@ static void install_absolute_veneer(uint32_t veneer_address,
 int dposlab_install_fpga_hook(void)
 {
     volatile uint32_t *fpga_site;
+    volatile uint32_t *early_site;
+    volatile uint32_t *csi_clock_reset_site;
+    volatile uint32_t *csi_base_bind_site;
+    volatile uint32_t *csi_enable_a_site;
+    volatile uint32_t *csi_enable_b_site;
+    volatile uint32_t *csi_config_8000_site;
+    volatile uint32_t *csi_pinmux_site;
+    volatile uint32_t *phase_a_site;
     volatile uint32_t *screenshot_site;
+
     volatile uint32_t *fpga_veneer;
+    volatile uint32_t *early_veneer;
+    volatile uint32_t *csi_clock_reset_veneer;
+    volatile uint32_t *csi_base_bind_veneer;
+    volatile uint32_t *csi_enable_a_veneer;
+    volatile uint32_t *csi_enable_b_veneer;
+    volatile uint32_t *csi_config_8000_veneer;
+    volatile uint32_t *csi_pinmux_veneer;
+    volatile uint32_t *phase_a_veneer;
     volatile uint32_t *screenshot_veneer;
 
     uint32_t fpga_hook_address;
+    uint32_t early_hook_address;
+    uint32_t csi_clock_reset_hook_address;
+    uint32_t csi_base_bind_hook_address;
+    uint32_t csi_enable_a_hook_address;
+    uint32_t csi_enable_b_hook_address;
+    uint32_t csi_config_8000_hook_address;
+    uint32_t csi_pinmux_hook_address;
+    uint32_t phase_a_hook_address;
     uint32_t screenshot_hook_address;
+
     uint32_t fpga_branch;
+    uint32_t early_branch;
+    uint32_t csi_clock_reset_branch;
+    uint32_t csi_base_bind_branch;
+    uint32_t csi_enable_a_branch;
+    uint32_t csi_enable_b_branch;
+    uint32_t csi_config_8000_branch;
+    uint32_t csi_pinmux_branch;
+    uint32_t phase_a_branch;
     uint32_t screenshot_branch;
 
     fpga_site = word_at(STOCK_FPGA_CALL_SITE);
+    early_site = word_at(STOCK_FPGA_EARLY_SITE);
+    csi_clock_reset_site =
+        word_at(STOCK_CSI_CLOCK_RESET_SITE);
+    csi_base_bind_site =
+        word_at(STOCK_CSI_BASE_BIND_SITE);
+    csi_enable_a_site =
+        word_at(STOCK_CSI_ENABLE_A_SITE);
+    csi_enable_b_site =
+        word_at(STOCK_CSI_ENABLE_B_SITE);
+    csi_config_8000_site =
+        word_at(STOCK_CSI_CONFIG_8000_SITE);
+    csi_pinmux_site =
+        word_at(STOCK_CSI_PINMUX_SITE);
+    phase_a_site = word_at(STOCK_FPGA_PHASE_A_SITE);
     screenshot_site = word_at(STOCK_SCREENSHOT_SITE);
 
     fpga_veneer = word_at(DPOSLAB_FPGA_VENEER);
+    early_veneer = word_at(DPOSLAB_FPGA_EARLY_VENEER);
+    csi_clock_reset_veneer =
+        word_at(DPOSLAB_CSI_CLOCK_RESET_VENEER);
+    csi_base_bind_veneer =
+        word_at(DPOSLAB_CSI_BASE_BIND_VENEER);
+    csi_enable_a_veneer =
+        word_at(DPOSLAB_CSI_ENABLE_A_VENEER);
+    csi_enable_b_veneer =
+        word_at(DPOSLAB_CSI_ENABLE_B_VENEER);
+    csi_config_8000_veneer =
+        word_at(DPOSLAB_CSI_CONFIG_8000_VENEER);
+    csi_pinmux_veneer =
+        word_at(DPOSLAB_CSI_PINMUX_VENEER);
+    phase_a_veneer = word_at(DPOSLAB_FPGA_PHASE_A_VENEER);
     screenshot_veneer = word_at(DPOSLAB_SCREENSHOT_VENEER);
 
     fpga_hook_address =
         (uint32_t)(uintptr_t)dposlab_fpga_start_hook;
+
+    early_hook_address =
+        (uint32_t)(uintptr_t)dposlab_fpga_early_hook;
+
+    csi_clock_reset_hook_address =
+        (uint32_t)(uintptr_t)dposlab_csi_clock_reset_hook;
+
+    csi_base_bind_hook_address =
+        (uint32_t)(uintptr_t)dposlab_csi_base_bind_hook;
+
+    csi_enable_a_hook_address =
+        (uint32_t)(uintptr_t)dposlab_csi_enable_a_hook;
+
+    csi_enable_b_hook_address =
+        (uint32_t)(uintptr_t)dposlab_csi_enable_b_hook;
+
+    csi_config_8000_hook_address =
+        (uint32_t)(uintptr_t)dposlab_csi_config_8000_hook;
+
+    csi_pinmux_hook_address =
+        (uint32_t)(uintptr_t)dposlab_csi_pinmux_hook;
+
+    phase_a_hook_address =
+        (uint32_t)(uintptr_t)dposlab_fpga_phase_a_hook;
 
     screenshot_hook_address =
         (uint32_t)(uintptr_t)dposlab_screenshot_hook;
 
     /*
      * Validate the complete patch set before modifying EXE2.
+     *
+     * If any expected instruction differs, refuse the whole patch.
+     * This prevents a partial installation against an incompatible
+     * EXE2 image or an already modified call site.
      */
     if (*fpga_site != STOCK_FPGA_CALL_ORIGINAL)
+        return 0;
+
+    if (*early_site != STOCK_FPGA_EARLY_ORIGINAL)
+        return 0;
+
+    if (*csi_clock_reset_site !=
+        STOCK_CSI_CLOCK_RESET_ORIGINAL)
+        return 0;
+
+    if (*csi_base_bind_site !=
+        STOCK_CSI_BASE_BIND_ORIGINAL)
+        return 0;
+
+    if (*csi_enable_a_site !=
+        STOCK_CSI_ENABLE_A_ORIGINAL)
+        return 0;
+
+    if (*csi_enable_b_site !=
+        STOCK_CSI_ENABLE_B_ORIGINAL)
+        return 0;
+
+    if (*csi_config_8000_site !=
+        STOCK_CSI_CONFIG_8000_ORIGINAL)
+        return 0;
+
+    if (*csi_pinmux_site !=
+        STOCK_CSI_PINMUX_ORIGINAL)
+        return 0;
+
+    if (*phase_a_site != STOCK_FPGA_PHASE_A_ORIGINAL)
         return 0;
 
     if (*screenshot_site != STOCK_SCREENSHOT_ORIGINAL)
         return 0;
 
+    /*
+     * Outer FPGA_Start hook:
+     *
+     *     0x40034738: BL 0x40049188
+     *              -> BL 0x40055B4C
+     */
     if (!encode_arm_branch(STOCK_FPGA_CALL_SITE,
                            DPOSLAB_FPGA_VENEER,
                            1U,
                            &fpga_branch))
         return 0;
 
+    /*
+     * Internal Phase A hook:
+     *
+     *     0x400491A8: BL 0x40049094
+     *              -> BL 0x40055ADC
+     */
+    /*
+     * Early CSI/init checkpoint:
+     *
+     *     0x40049194: BL 0x400660C8
+     *              -> BL 0x40055AE4
+     */
+    if (!encode_arm_branch(STOCK_FPGA_EARLY_SITE,
+                           DPOSLAB_FPGA_EARLY_VENEER,
+                           1U,
+                           &early_branch))
+        return 0;
+
+    /*
+     * CSI clock/reset checkpoint:
+     *
+     *     0x400660D4: BL 0x40065F48
+     *              -> BL 0x40055AEC
+     */
+    if (!encode_arm_branch(STOCK_CSI_CLOCK_RESET_SITE,
+                           DPOSLAB_CSI_CLOCK_RESET_VENEER,
+                           1U,
+                           &csi_clock_reset_branch))
+        return 0;
+
+    /*
+     * CSI controller-base binding checkpoint:
+     *
+     *     0x400660E4: BL 0x400658BC
+     *              -> BL 0x40055AF4
+     */
+    if (!encode_arm_branch(STOCK_CSI_BASE_BIND_SITE,
+                           DPOSLAB_CSI_BASE_BIND_VENEER,
+                           1U,
+                           &csi_base_bind_branch))
+        return 0;
+
+    /*
+     * CSI enable/reset stage A checkpoint:
+     *
+     *     0x400660EC: BL 0x40065C68
+     *              -> BL 0x40055AFC
+     */
+    if (!encode_arm_branch(STOCK_CSI_ENABLE_A_SITE,
+                           DPOSLAB_CSI_ENABLE_A_VENEER,
+                           1U,
+                           &csi_enable_a_branch))
+        return 0;
+
+    /*
+     * CSI enable/reset stage B checkpoint:
+     *
+     *     0x400660F4: BL 0x40065C64
+     *              -> BL 0x40055B04
+     */
+    if (!encode_arm_branch(STOCK_CSI_ENABLE_B_SITE,
+                           DPOSLAB_CSI_ENABLE_B_VENEER,
+                           1U,
+                           &csi_enable_b_branch))
+        return 0;
+
+    /*
+     * CSI descriptor/configuration checkpoint:
+     *
+     *     0x400660FC: BL 0x40065FA8
+     *              -> BL 0x40055B0C
+     */
+    if (!encode_arm_branch(STOCK_CSI_CONFIG_8000_SITE,
+                           DPOSLAB_CSI_CONFIG_8000_VENEER,
+                           1U,
+                           &csi_config_8000_branch))
+        return 0;
+
+    /*
+     * Final CSI PE-pinmux checkpoint:
+     *
+     *     0x40066060: BL 0x40065EF8
+     *              -> BL 0x40055B14
+     */
+    if (!encode_arm_branch(STOCK_CSI_PINMUX_SITE,
+                           DPOSLAB_CSI_PINMUX_VENEER,
+                           1U,
+                           &csi_pinmux_branch))
+        return 0;
+
+    if (!encode_arm_branch(STOCK_FPGA_PHASE_A_SITE,
+                           DPOSLAB_FPGA_PHASE_A_VENEER,
+                           1U,
+                           &phase_a_branch))
+        return 0;
+
+    /*
+     * Screenshot post-save hook:
+     *
+     *     0x400350F0: B 0x40034284
+     *              -> B 0x40055AD4
+     */
     if (!encode_arm_branch(STOCK_SCREENSHOT_SITE,
                            DPOSLAB_SCREENSHOT_VENEER,
                            0U,
                            &screenshot_branch))
         return 0;
 
+    /*
+     * Install absolute veneers before making their call sites reachable.
+     */
     install_absolute_veneer(
         DPOSLAB_FPGA_VENEER,
         fpga_hook_address);
 
     install_absolute_veneer(
+        DPOSLAB_FPGA_EARLY_VENEER,
+        early_hook_address);
+
+    install_absolute_veneer(
+        DPOSLAB_CSI_CLOCK_RESET_VENEER,
+        csi_clock_reset_hook_address);
+
+    install_absolute_veneer(
+        DPOSLAB_CSI_BASE_BIND_VENEER,
+        csi_base_bind_hook_address);
+
+    install_absolute_veneer(
+        DPOSLAB_CSI_ENABLE_A_VENEER,
+        csi_enable_a_hook_address);
+
+    install_absolute_veneer(
+        DPOSLAB_CSI_ENABLE_B_VENEER,
+        csi_enable_b_hook_address);
+
+    install_absolute_veneer(
+        DPOSLAB_CSI_CONFIG_8000_VENEER,
+        csi_config_8000_hook_address);
+
+    install_absolute_veneer(
+        DPOSLAB_CSI_PINMUX_VENEER,
+        csi_pinmux_hook_address);
+
+    install_absolute_veneer(
+        DPOSLAB_FPGA_PHASE_A_VENEER,
+        phase_a_hook_address);
+
+    install_absolute_veneer(
         DPOSLAB_SCREENSHOT_VENEER,
         screenshot_hook_address);
 
+    /*
+     * Apply all stock call-site patches.
+     */
     *fpga_site = fpga_branch;
+    *early_site = early_branch;
+    *csi_clock_reset_site = csi_clock_reset_branch;
+    *csi_base_bind_site = csi_base_bind_branch;
+    *csi_enable_a_site = csi_enable_a_branch;
+    *csi_enable_b_site = csi_enable_b_branch;
+    *csi_config_8000_site = csi_config_8000_branch;
+    *csi_pinmux_site = csi_pinmux_branch;
+    *phase_a_site = phase_a_branch;
     *screenshot_site = screenshot_branch;
 
+    /*
+     * Publish modified instructions and veneers to instruction fetch.
+     */
     cache_clean_range(DPOSLAB_FPGA_VENEER, 8U);
+    cache_clean_range(DPOSLAB_FPGA_EARLY_VENEER, 8U);
+    cache_clean_range(DPOSLAB_CSI_CLOCK_RESET_VENEER, 8U);
+    cache_clean_range(DPOSLAB_CSI_BASE_BIND_VENEER, 8U);
+    cache_clean_range(DPOSLAB_CSI_ENABLE_A_VENEER, 8U);
+    cache_clean_range(DPOSLAB_CSI_ENABLE_B_VENEER, 8U);
+    cache_clean_range(DPOSLAB_CSI_CONFIG_8000_VENEER, 8U);
+    cache_clean_range(DPOSLAB_CSI_PINMUX_VENEER, 8U);
+    cache_clean_range(DPOSLAB_FPGA_PHASE_A_VENEER, 8U);
     cache_clean_range(DPOSLAB_SCREENSHOT_VENEER, 8U);
 
     cache_clean_range(STOCK_FPGA_CALL_SITE, 4U);
+    cache_clean_range(STOCK_FPGA_EARLY_SITE, 4U);
+    cache_clean_range(STOCK_CSI_CLOCK_RESET_SITE, 4U);
+    cache_clean_range(STOCK_CSI_BASE_BIND_SITE, 4U);
+    cache_clean_range(STOCK_CSI_ENABLE_A_SITE, 4U);
+    cache_clean_range(STOCK_CSI_ENABLE_B_SITE, 4U);
+    cache_clean_range(STOCK_CSI_CONFIG_8000_SITE, 4U);
+    cache_clean_range(STOCK_CSI_PINMUX_SITE, 4U);
+    cache_clean_range(STOCK_FPGA_PHASE_A_SITE, 4U);
     cache_clean_range(STOCK_SCREENSHOT_SITE, 4U);
 
     cache_invalidate_icache_all();
@@ -124,12 +464,59 @@ int dposlab_install_fpga_hook(void)
     cache_dsb();
     cache_isb();
 
+    /*
+     * Verify both patched sites and all absolute veneers.
+     */
     return
         *fpga_site == fpga_branch &&
+        *early_site == early_branch &&
+        *csi_clock_reset_site == csi_clock_reset_branch &&
+        *csi_base_bind_site == csi_base_bind_branch &&
+        *csi_enable_a_site == csi_enable_a_branch &&
+        *csi_enable_b_site == csi_enable_b_branch &&
+        *csi_config_8000_site == csi_config_8000_branch &&
+        *csi_pinmux_site == csi_pinmux_branch &&
+        *phase_a_site == phase_a_branch &&
         *screenshot_site == screenshot_branch &&
 
         fpga_veneer[0] == ARM_LDR_PC_PC_MINUS_4 &&
         fpga_veneer[1] == fpga_hook_address &&
+
+        early_veneer[0] == ARM_LDR_PC_PC_MINUS_4 &&
+        early_veneer[1] == early_hook_address &&
+
+        csi_clock_reset_veneer[0] ==
+            ARM_LDR_PC_PC_MINUS_4 &&
+        csi_clock_reset_veneer[1] ==
+            csi_clock_reset_hook_address &&
+
+        csi_base_bind_veneer[0] ==
+            ARM_LDR_PC_PC_MINUS_4 &&
+        csi_base_bind_veneer[1] ==
+            csi_base_bind_hook_address &&
+
+        csi_enable_a_veneer[0] ==
+            ARM_LDR_PC_PC_MINUS_4 &&
+        csi_enable_a_veneer[1] ==
+            csi_enable_a_hook_address &&
+
+        csi_enable_b_veneer[0] ==
+            ARM_LDR_PC_PC_MINUS_4 &&
+        csi_enable_b_veneer[1] ==
+            csi_enable_b_hook_address &&
+
+        csi_config_8000_veneer[0] ==
+            ARM_LDR_PC_PC_MINUS_4 &&
+        csi_config_8000_veneer[1] ==
+            csi_config_8000_hook_address &&
+
+        csi_pinmux_veneer[0] ==
+            ARM_LDR_PC_PC_MINUS_4 &&
+        csi_pinmux_veneer[1] ==
+            csi_pinmux_hook_address &&
+
+        phase_a_veneer[0] == ARM_LDR_PC_PC_MINUS_4 &&
+        phase_a_veneer[1] == phase_a_hook_address &&
 
         screenshot_veneer[0] == ARM_LDR_PC_PC_MINUS_4 &&
         screenshot_veneer[1] == screenshot_hook_address;
