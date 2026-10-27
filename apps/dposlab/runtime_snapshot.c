@@ -77,10 +77,7 @@ void dposlab_capture_before(uint32_t cpsr,
 {
     capture_snapshot(&dposlab_fpga_before, cpsr, frame, 1U);
 
-    dposlab_trace_append(
-        DPOSLAB_CP_FPGA_START_ENTRY,
-        0x40049188U,
-        &dposlab_fpga_before);
+    /* SMEC retry profile: keep the before snapshot but do not consume a record. */
 }
 
 void dposlab_capture_after(uint32_t cpsr,
@@ -88,10 +85,7 @@ void dposlab_capture_after(uint32_t cpsr,
 {
     capture_snapshot(&dposlab_fpga_after, cpsr, frame, 0U);
 
-    dposlab_trace_append(
-        DPOSLAB_CP_FPGA_START_RETURN,
-        0x4003473CU,
-        &dposlab_fpga_after);
+    /* SMEC retry profile: keep the after snapshot but do not consume a record. */
 }
 
 void dposlab_capture_checkpoint(
@@ -101,6 +95,32 @@ void dposlab_capture_checkpoint(
     const struct dposlab_cpu_frame *frame)
 {
     struct dposlab_runtime_snapshot snapshot;
+
+    /*
+     * This experiment records only the first two startup jobs. At both
+     * 0x4004A0F0 and 0x4004A0F8, stock keeps the requested ID in r7.
+     * Two records per attempt fit the existing 32-record ABI even for the
+     * complete stock retry sequence: Job 1 once plus Job 2 fourteen times.
+     */
+    if (checkpoint != DPOSLAB_CP_SMEC_AFTER_ECHO68 &&
+        checkpoint != DPOSLAB_CP_SMEC_AFTER_VALID67 &&
+        checkpoint != DPOSLAB_CP_SMEC_JOB2_BEFORE_START &&
+        checkpoint != DPOSLAB_CP_SMEC_JOB2_AFTER_START &&
+        checkpoint != DPOSLAB_CP_SMEC_JOB2_BEFORE_POLL65 &&
+        checkpoint != DPOSLAB_CP_SMEC_JOB2_AFTER_POLL65)
+        return;
+
+    if ((checkpoint == DPOSLAB_CP_SMEC_AFTER_ECHO68 ||
+         checkpoint == DPOSLAB_CP_SMEC_AFTER_VALID67) &&
+        (frame->r[7] == 0U || frame->r[7] > 2U))
+        return;
+
+    if ((checkpoint == DPOSLAB_CP_SMEC_JOB2_BEFORE_START ||
+         checkpoint == DPOSLAB_CP_SMEC_JOB2_AFTER_START ||
+         checkpoint == DPOSLAB_CP_SMEC_JOB2_BEFORE_POLL65 ||
+         checkpoint == DPOSLAB_CP_SMEC_JOB2_AFTER_POLL65) &&
+        frame->r[7] != 2U)
+        return;
 
     capture_snapshot(&snapshot, cpsr, frame, 1U);
 

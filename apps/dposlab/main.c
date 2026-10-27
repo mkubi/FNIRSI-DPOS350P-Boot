@@ -13,7 +13,6 @@
 #endif
 #define WHITE 0xFFFFU
 #define BLACK 0x0000U
-#define DPOSLAB_PHOTO_DELAY_LOOPS 500000000U
 
 static volatile uint32_t marker __attribute__((section(".data"))) = 0x4C414201U;
 
@@ -32,197 +31,75 @@ volatile uint32_t dposlab_fpga_hook_hits
 volatile uint32_t dposlab_fpga_post_cpsr
     __attribute__((section(".data"))) = 0U;
 
-static void photo_delay(void)
-{
-    volatile uint32_t delay;
-
-    for (delay = 0U; delay < DPOSLAB_PHOTO_DELAY_LOOPS; ++delay)
-        __asm__ volatile ("nop");
-}
-
-static void put_before_after(const char *name,
-                             uint32_t before,
-                             uint32_t after)
-{
-    console_puts(name);
-    put_hex(before);
-    console_puts(" / ");
-    put_hex(after);
-    console_putln("");
-}
+struct fpga_smec_stage24_pe_result dposlab_custom_smec_result
+    __attribute__((section(".data")));
+extern volatile uint32_t dposlab_primitive_test_mode;
 
 void dposlab_fpga_return_monitor(void)
 {
+    const struct fpga_smec_stage24_pe_result *r;
+
+    r = &dposlab_custom_smec_result;
     dposlab_fpga_hook_hits += 1U;
     dposlab_fpga_post_cpsr = dposlab_fpga_after.cpsr;
-    marker = 0x4C414246U; /* "LABF" */
+    marker = 0x4C414241U; /* "LABA" */
 
-    /*
-     * Page 1: CPU and PE bus state.
-     * All displayed hardware values were captured passively.
-     */
     console_init(WHITE, BLACK, 2U);
     console_clear();
-
-    console_putln("DPOSLAB FPGA DIFF 1/2");
-    console_putln("---------------------------");
-    console_putln("FPGA_Start RETURNED        PASS");
-
-    console_puts("HOOK COUNT                 ");
-    put_hex(dposlab_fpga_hook_hits);
+    console_putln("PRIMITIVE BISECT - CUMULATIVE");
+    console_putln("--------------------------------");
+    console_putln("CLOCK/MMU                  PASS");
+    console_putln("System_Init PART1          SKIPPED");
+    console_putln("System_Init PART2          PASS");
+    console_putln("STOCK FPGA_Start           PASS");
+    console_puts("PRIMITIVE TEST MODE         ");
+    put_hex(dposlab_primitive_test_mode);
+    console_putln("");
     console_putln("");
 
-    put_before_after("CPSR B/A   ",
-                     dposlab_fpga_before.cpsr,
-                     dposlab_fpga_after.cpsr);
-
-    console_puts("GPR CHANGED MASK           ");
-    put_hex(dposlab_gpr_changed_mask());
+    console_puts("CUSTOM JOB1 COMPLETE       ");
+    console_putln(r->job1.completed ? "YES" : "NO");
+    console_puts("J1 RESULT66                ");
+    put_hex(r->job1.result66);
+    console_putln("");
+    console_puts("J1 ECHO/STATUS             ");
+    put_hex(((uint32_t)r->job1.echo68 << 8) | r->job1.status67);
+    console_putln("");
+    console_puts("J1 ERROR / ATTEMPTS        ");
+    put_hex(((uint32_t)r->job1.error << 16) |
+            (r->job1_attempts & 0xFFFFU));
     console_putln("");
 
-    put_before_after("PE CFG0 B/A ",
-                     dposlab_fpga_before.pe_cfg0,
-                     dposlab_fpga_after.pe_cfg0);
-
-    put_before_after("PE CFG1 B/A ",
-                     dposlab_fpga_before.pe_cfg1,
-                     dposlab_fpga_after.pe_cfg1);
-
-    put_before_after("PE DATA B/A ",
-                     dposlab_fpga_before.pe_data,
-                     dposlab_fpga_after.pe_data);
-
-    put_before_after("PE PULL B/A ",
-                     dposlab_fpga_before.pe_pull0,
-                     dposlab_fpga_after.pe_pull0);
-
-    console_puts("STOCK SP                   ");
-    put_hex(dposlab_fpga_before.stock_sp);
+    console_puts("CUSTOM JOB2 COMPLETE       ");
+    console_putln(r->job2.completed ? "YES" : "NO");
+    console_puts("J2 RESULT66                ");
+    put_hex(r->job2.result66);
     console_putln("");
-
-    console_puts("FPGA EXEC SP               ");
-    put_hex(dposlab_fpga_before.exec_sp);
+    console_puts("J2 ECHO/STATUS             ");
+    put_hex(((uint32_t)r->job2.echo68 << 8) | r->job2.status67);
+    console_putln("");
+    console_puts("J2 ERROR / ATTEMPTS        ");
+    put_hex(((uint32_t)r->job2.error << 16) |
+            (r->job2_attempts & 0xFFFFU));
+    console_putln("");
+    console_puts("J2 TIMING / OUTER          ");
+    put_hex((r->job2_final_timing << 8) |
+            (r->job2_outer_attempt & 0xFFU));
     console_putln("");
 
     console_putln("");
-    console_putln("AUTO NEXT PAGE             ~3 SEC");
+    console_puts("BISECT RESULT              ");
+    console_putln((r->job1.completed && r->job2.completed) ?
+                  "PASS" : "FAIL");
+    console_putln("STOCK MAIN CONTINUE        BLOCKED");
+    console_putln("POWER CYCLE TO EXIT");
     console_present();
-    photo_delay();
-
-    /*
-     * Page 2: passive clock and CSI state.
-     */
-    console_clear();
-
-    console_putln("DPOSLAB FPGA DIFF 2/2");
-    console_putln("---------------------------");
-
-    put_before_after("CCU GATE0   ",
-                     dposlab_fpga_before.ccu_gate0,
-                     dposlab_fpga_after.ccu_gate0);
-
-    put_before_after("CCU RESET0  ",
-                     dposlab_fpga_before.ccu_reset0,
-                     dposlab_fpga_after.ccu_reset0);
-
-    put_before_after("CSI IF CFG  ",
-                     dposlab_fpga_before.csi_if_cfg,
-                     dposlab_fpga_after.csi_if_cfg);
-
-    put_before_after("CSI MODE    ",
-                     dposlab_fpga_before.csi_mode,
-                     dposlab_fpga_after.csi_mode);
-
-    put_before_after("CSI HSIZE   ",
-                     dposlab_fpga_before.csi_hsize,
-                     dposlab_fpga_after.csi_hsize);
-
-    put_before_after("CSI DEST    ",
-                     dposlab_fpga_before.csi_destination,
-                     dposlab_fpga_after.csi_destination);
-
-    put_before_after("CSI IRQ EN  ",
-                     dposlab_fpga_before.csi_irq_enable,
-                     dposlab_fpga_after.csi_irq_enable);
-
-    put_before_after("CSI STATUS  ",
-                     dposlab_fpga_before.csi_status,
-                     dposlab_fpga_after.csi_status);
-
-    console_putln("");
-
-    console_putln("PASSIVE MMIO SNAPSHOT      OK");
-    console_putln("AUTO CONTINUE              ~3 SEC");
-    console_present();
-    photo_delay();
-    {
-        const volatile struct dposlab_trace_record *first;
-        const volatile struct dposlab_trace_record *last;
-
-        first = dposlab_trace_first();
-        last = dposlab_trace_last();
-
-        console_clear();
-
-        console_putln("DPOSLAB TRACE STATUS 3/3");
-        console_putln("---------------------------");
-
-        console_puts("TRACE MAGIC                ");
-        put_hex(dposlab_trace.magic);
-        console_putln("");
-
-        console_puts("TRACE VERSION              ");
-        put_hex(dposlab_trace.version);
-        console_putln("");
-
-        console_puts("HEADER SIZE                ");
-        put_hex(dposlab_trace.header_size);
-        console_putln("");
-
-        console_puts("RECORD SIZE                ");
-        put_hex(dposlab_trace.record_size);
-        console_putln("");
-
-        console_puts("TRACE CAPACITY             ");
-        put_hex(dposlab_trace.capacity);
-        console_putln("");
-
-        console_puts("TRACE RECORDS              ");
-        put_hex(dposlab_trace.record_count);
-        console_putln("");
-
-        console_puts("TRACE DROPPED              ");
-        put_hex(dposlab_trace.dropped);
-        console_putln("");
-
-        console_puts("FIRST CHECKPOINT           ");
-        put_hex(first ? first->checkpoint : 0xFFFFFFFFU);
-        console_putln("");
-
-        console_puts("FIRST ADDRESS              ");
-        put_hex(first ? first->execution_address : 0U);
-        console_putln("");
-
-        console_puts("LAST CHECKPOINT            ");
-        put_hex(last ? last->checkpoint : 0xFFFFFFFFU);
-        console_putln("");
-
-        console_puts("LAST ADDRESS               ");
-        put_hex(last ? last->execution_address : 0U);
-        console_putln("");
-
-        console_putln("");
-        console_putln("AUTO CONTINUE              ~3 SEC");
-        console_present();
-        photo_delay();
-    }
-
 }
 
 int main(const dposlab_handoff_t *handoff)
 {
     display_init(); console_init(WHITE,BLACK,2U); console_clear();
-    console_putln("DPOSLAB STAGE 3 V1");
+    console_putln("DPOSLAB PRIMITIVE BISECT");
     console_putln("STEP                         RESULT / VALUE");
     console_putln("-------------------------------------------");
     console_puts("HANDOFF PTR                  ");
@@ -326,12 +203,12 @@ int main(const dposlab_handoff_t *handoff)
     marker = 0x4C414210U;
     dposlab_trace_reset();
 
-    console_putln("INSTALL FPGA RETURN HOOK    RUNNING");
+    console_putln("INSTALL MINIMAL MAIN HOOK  RUNNING");
     console_present();
 
-    if (!dposlab_install_fpga_hook()) {
+    if (!dposlab_install_minimal_stock_fpga_hook()) {
         marker = 0x4C4142FFU;
-        console_putln("INSTALL FPGA RETURN HOOK    FAIL");
+        console_putln("INSTALL MINIMAL MAIN HOOK  FAIL");
         console_present();
 
         for (;;)
@@ -339,13 +216,13 @@ int main(const dposlab_handoff_t *handoff)
     }
 
     marker = 0x4C414211U;
-    console_putln("INSTALL FPGA RETURN HOOK    PASS");
+    console_putln("INSTALL MINIMAL MAIN HOOK  PASS");
 
     console_puts("STAGE2 SP                   ");
     put_hex(handoff->stage2_sp);
     console_putln("");
 
-    console_putln("JUMP STOCK EXE2             NOW");
+    console_putln("JUMP TO PRIMITIVE BISECT    NOW");
     console_present();
 
     stock_jump_exe2(handoff->stage2_sp);

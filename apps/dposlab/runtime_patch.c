@@ -36,7 +36,23 @@
 
 #define STOCK_CSI_PINMUX_SITE              0x40066060U
 #define STOCK_CSI_PINMUX_ORIGINAL          0xEBFFFFA4U
-#define DPOSLAB_CSI_PINMUX_VENEER          0x40055B14U
+#define DPOSLAB_CSI_PINMUX_VENEER     0x40055B14U
+
+#define STOCK_SMEC_ECHO68_SITE          0x4004A0F0U
+#define STOCK_SMEC_ECHO68_ORIGINAL      0xEBFFFFDBU
+#define DPOSLAB_SMEC_ECHO68_VENEER      0x40055B1CU
+
+#define STOCK_SMEC_VALID67_SITE         0x4004A0F8U
+#define STOCK_SMEC_VALID67_ORIGINAL     0xEBFFFFC8U
+#define DPOSLAB_SMEC_VALID67_VENEER     0x40055B24U
+
+#define STOCK_SMEC_JOB_START_SITE        0x4004A0E8U
+#define STOCK_SMEC_JOB_START_ORIGINAL    0xEBFFFFBBU
+#define DPOSLAB_SMEC_JOB_START_VENEER    0x40055B2CU
+
+#define STOCK_SMEC_POLL65_SITE           0x4004A0ECU
+#define STOCK_SMEC_POLL65_ORIGINAL       0xEBFFFFD3U
+#define DPOSLAB_SMEC_POLL65_VENEER       0x40055B34U
 
 #define STOCK_SCREENSHOT_SITE        0x400350F0U
 #define STOCK_SCREENSHOT_ORIGINAL    0xEAFFFC63U
@@ -53,6 +69,10 @@ extern void dposlab_csi_enable_a_hook(void);
 extern void dposlab_csi_enable_b_hook(void);
 extern void dposlab_csi_config_8000_hook(void);
 extern void dposlab_csi_pinmux_hook(void);
+extern void dposlab_smec_echo68_hook(void);
+extern void dposlab_smec_valid67_hook(void);
+extern void dposlab_smec_job_start_hook(void);
+extern void dposlab_smec_poll65_hook(void);
 extern void dposlab_screenshot_hook(void);
 
 static volatile uint32_t *word_at(uint32_t address)
@@ -114,6 +134,10 @@ int dposlab_install_fpga_hook(void)
     volatile uint32_t *csi_enable_b_site;
     volatile uint32_t *csi_config_8000_site;
     volatile uint32_t *csi_pinmux_site;
+    volatile uint32_t *smec_echo68_site;
+    volatile uint32_t *smec_valid67_site;
+    volatile uint32_t *smec_job_start_site;
+    volatile uint32_t *smec_poll65_site;
     volatile uint32_t *phase_a_site;
     volatile uint32_t *screenshot_site;
 
@@ -125,6 +149,10 @@ int dposlab_install_fpga_hook(void)
     volatile uint32_t *csi_enable_b_veneer;
     volatile uint32_t *csi_config_8000_veneer;
     volatile uint32_t *csi_pinmux_veneer;
+    volatile uint32_t *smec_echo68_veneer;
+    volatile uint32_t *smec_valid67_veneer;
+    volatile uint32_t *smec_job_start_veneer;
+    volatile uint32_t *smec_poll65_veneer;
     volatile uint32_t *phase_a_veneer;
     volatile uint32_t *screenshot_veneer;
 
@@ -136,6 +164,10 @@ int dposlab_install_fpga_hook(void)
     uint32_t csi_enable_b_hook_address;
     uint32_t csi_config_8000_hook_address;
     uint32_t csi_pinmux_hook_address;
+    uint32_t smec_echo68_hook_address;
+    uint32_t smec_valid67_hook_address;
+    uint32_t smec_job_start_hook_address;
+    uint32_t smec_poll65_hook_address;
     uint32_t phase_a_hook_address;
     uint32_t screenshot_hook_address;
 
@@ -147,6 +179,10 @@ int dposlab_install_fpga_hook(void)
     uint32_t csi_enable_b_branch;
     uint32_t csi_config_8000_branch;
     uint32_t csi_pinmux_branch;
+    uint32_t smec_echo68_branch;
+    uint32_t smec_valid67_branch;
+    uint32_t smec_job_start_branch;
+    uint32_t smec_poll65_branch;
     uint32_t phase_a_branch;
     uint32_t screenshot_branch;
 
@@ -164,6 +200,10 @@ int dposlab_install_fpga_hook(void)
         word_at(STOCK_CSI_CONFIG_8000_SITE);
     csi_pinmux_site =
         word_at(STOCK_CSI_PINMUX_SITE);
+    smec_echo68_site = word_at(STOCK_SMEC_ECHO68_SITE);
+    smec_valid67_site = word_at(STOCK_SMEC_VALID67_SITE);
+    smec_job_start_site = word_at(STOCK_SMEC_JOB_START_SITE);
+    smec_poll65_site = word_at(STOCK_SMEC_POLL65_SITE);
     phase_a_site = word_at(STOCK_FPGA_PHASE_A_SITE);
     screenshot_site = word_at(STOCK_SCREENSHOT_SITE);
 
@@ -181,6 +221,10 @@ int dposlab_install_fpga_hook(void)
         word_at(DPOSLAB_CSI_CONFIG_8000_VENEER);
     csi_pinmux_veneer =
         word_at(DPOSLAB_CSI_PINMUX_VENEER);
+    smec_echo68_veneer = word_at(DPOSLAB_SMEC_ECHO68_VENEER);
+    smec_valid67_veneer = word_at(DPOSLAB_SMEC_VALID67_VENEER);
+    smec_job_start_veneer = word_at(DPOSLAB_SMEC_JOB_START_VENEER);
+    smec_poll65_veneer = word_at(DPOSLAB_SMEC_POLL65_VENEER);
     phase_a_veneer = word_at(DPOSLAB_FPGA_PHASE_A_VENEER);
     screenshot_veneer = word_at(DPOSLAB_SCREENSHOT_VENEER);
 
@@ -207,6 +251,14 @@ int dposlab_install_fpga_hook(void)
 
     csi_pinmux_hook_address =
         (uint32_t)(uintptr_t)dposlab_csi_pinmux_hook;
+    smec_echo68_hook_address =
+        (uint32_t)(uintptr_t)dposlab_smec_echo68_hook;
+    smec_valid67_hook_address =
+        (uint32_t)(uintptr_t)dposlab_smec_valid67_hook;
+    smec_job_start_hook_address =
+        (uint32_t)(uintptr_t)dposlab_smec_job_start_hook;
+    smec_poll65_hook_address =
+        (uint32_t)(uintptr_t)dposlab_smec_poll65_hook;
 
     phase_a_hook_address =
         (uint32_t)(uintptr_t)dposlab_fpga_phase_a_hook;
@@ -249,6 +301,16 @@ int dposlab_install_fpga_hook(void)
 
     if (*csi_pinmux_site !=
         STOCK_CSI_PINMUX_ORIGINAL)
+        return 0;
+
+    if (*smec_echo68_site != STOCK_SMEC_ECHO68_ORIGINAL)
+        return 0;
+
+    if (*smec_valid67_site != STOCK_SMEC_VALID67_ORIGINAL)
+        return 0;
+    if (*smec_job_start_site != STOCK_SMEC_JOB_START_ORIGINAL)
+        return 0;
+    if (*smec_poll65_site != STOCK_SMEC_POLL65_ORIGINAL)
         return 0;
 
     if (*phase_a_site != STOCK_FPGA_PHASE_A_ORIGINAL)
@@ -359,6 +421,27 @@ int dposlab_install_fpga_hook(void)
                            &csi_pinmux_branch))
         return 0;
 
+    if (!encode_arm_branch(STOCK_SMEC_ECHO68_SITE,
+                           DPOSLAB_SMEC_ECHO68_VENEER,
+                           1U,
+                           &smec_echo68_branch))
+        return 0;
+
+    if (!encode_arm_branch(STOCK_SMEC_VALID67_SITE,
+                           DPOSLAB_SMEC_VALID67_VENEER,
+                           1U,
+                           &smec_valid67_branch))
+        return 0;
+
+    if (!encode_arm_branch(STOCK_SMEC_JOB_START_SITE,
+                           DPOSLAB_SMEC_JOB_START_VENEER, 1U,
+                           &smec_job_start_branch))
+        return 0;
+    if (!encode_arm_branch(STOCK_SMEC_POLL65_SITE,
+                           DPOSLAB_SMEC_POLL65_VENEER, 1U,
+                           &smec_poll65_branch))
+        return 0;
+
     if (!encode_arm_branch(STOCK_FPGA_PHASE_A_SITE,
                            DPOSLAB_FPGA_PHASE_A_VENEER,
                            1U,
@@ -413,6 +496,18 @@ int dposlab_install_fpga_hook(void)
         csi_pinmux_hook_address);
 
     install_absolute_veneer(
+        DPOSLAB_SMEC_ECHO68_VENEER,
+        smec_echo68_hook_address);
+
+    install_absolute_veneer(
+        DPOSLAB_SMEC_VALID67_VENEER,
+        smec_valid67_hook_address);
+    install_absolute_veneer(DPOSLAB_SMEC_JOB_START_VENEER,
+                            smec_job_start_hook_address);
+    install_absolute_veneer(DPOSLAB_SMEC_POLL65_VENEER,
+                            smec_poll65_hook_address);
+
+    install_absolute_veneer(
         DPOSLAB_FPGA_PHASE_A_VENEER,
         phase_a_hook_address);
 
@@ -431,6 +526,10 @@ int dposlab_install_fpga_hook(void)
     *csi_enable_b_site = csi_enable_b_branch;
     *csi_config_8000_site = csi_config_8000_branch;
     *csi_pinmux_site = csi_pinmux_branch;
+    *smec_echo68_site = smec_echo68_branch;
+    *smec_valid67_site = smec_valid67_branch;
+    *smec_job_start_site = smec_job_start_branch;
+    *smec_poll65_site = smec_poll65_branch;
     *phase_a_site = phase_a_branch;
     *screenshot_site = screenshot_branch;
 
@@ -445,6 +544,10 @@ int dposlab_install_fpga_hook(void)
     cache_clean_range(DPOSLAB_CSI_ENABLE_B_VENEER, 8U);
     cache_clean_range(DPOSLAB_CSI_CONFIG_8000_VENEER, 8U);
     cache_clean_range(DPOSLAB_CSI_PINMUX_VENEER, 8U);
+    cache_clean_range(DPOSLAB_SMEC_ECHO68_VENEER, 8U);
+    cache_clean_range(DPOSLAB_SMEC_VALID67_VENEER, 8U);
+    cache_clean_range(DPOSLAB_SMEC_JOB_START_VENEER, 8U);
+    cache_clean_range(DPOSLAB_SMEC_POLL65_VENEER, 8U);
     cache_clean_range(DPOSLAB_FPGA_PHASE_A_VENEER, 8U);
     cache_clean_range(DPOSLAB_SCREENSHOT_VENEER, 8U);
 
@@ -456,6 +559,10 @@ int dposlab_install_fpga_hook(void)
     cache_clean_range(STOCK_CSI_ENABLE_B_SITE, 4U);
     cache_clean_range(STOCK_CSI_CONFIG_8000_SITE, 4U);
     cache_clean_range(STOCK_CSI_PINMUX_SITE, 4U);
+    cache_clean_range(STOCK_SMEC_ECHO68_SITE, 4U);
+    cache_clean_range(STOCK_SMEC_VALID67_SITE, 4U);
+    cache_clean_range(STOCK_SMEC_JOB_START_SITE, 4U);
+    cache_clean_range(STOCK_SMEC_POLL65_SITE, 4U);
     cache_clean_range(STOCK_FPGA_PHASE_A_SITE, 4U);
     cache_clean_range(STOCK_SCREENSHOT_SITE, 4U);
 
@@ -476,6 +583,10 @@ int dposlab_install_fpga_hook(void)
         *csi_enable_b_site == csi_enable_b_branch &&
         *csi_config_8000_site == csi_config_8000_branch &&
         *csi_pinmux_site == csi_pinmux_branch &&
+        *smec_echo68_site == smec_echo68_branch &&
+        *smec_valid67_site == smec_valid67_branch &&
+        *smec_job_start_site == smec_job_start_branch &&
+        *smec_poll65_site == smec_poll65_branch &&
         *phase_a_site == phase_a_branch &&
         *screenshot_site == screenshot_branch &&
 
@@ -515,9 +626,70 @@ int dposlab_install_fpga_hook(void)
         csi_pinmux_veneer[1] ==
             csi_pinmux_hook_address &&
 
+        smec_echo68_veneer[0] == ARM_LDR_PC_PC_MINUS_4 &&
+        smec_echo68_veneer[1] == smec_echo68_hook_address &&
+
+        smec_valid67_veneer[0] == ARM_LDR_PC_PC_MINUS_4 &&
+        smec_valid67_veneer[1] == smec_valid67_hook_address &&
+        smec_job_start_veneer[0] == ARM_LDR_PC_PC_MINUS_4 &&
+        smec_job_start_veneer[1] == smec_job_start_hook_address &&
+        smec_poll65_veneer[0] == ARM_LDR_PC_PC_MINUS_4 &&
+        smec_poll65_veneer[1] == smec_poll65_hook_address &&
+
         phase_a_veneer[0] == ARM_LDR_PC_PC_MINUS_4 &&
         phase_a_veneer[1] == phase_a_hook_address &&
 
         screenshot_veneer[0] == ARM_LDR_PC_PC_MINUS_4 &&
         screenshot_veneer[1] == screenshot_hook_address;
+}
+
+/*
+ * Minimal stock runtime Stage 1:
+ *
+ *   EXE2 startup -> sys_clock_init -> sys_mmu_init
+ *   -> hook at 0x40034710 before System_Init -> stock FPGA_Start -> DPOSLAB monitor -> stop
+ *
+ * No application init and no internal FPGA/CSI/SMEC hooks are installed.
+ */
+#define STOCK_MINIMAL_MAIN_SITE       0x40034710U
+#define STOCK_MINIMAL_MAIN_ORIGINAL   0xEB003984U /* bl System_Init */
+
+extern void dposlab_minimal_stock_fpga_hook(void);
+
+int dposlab_install_minimal_stock_fpga_hook(void)
+{
+    volatile uint32_t *site;
+    volatile uint32_t *veneer;
+    uint32_t hook_address;
+    uint32_t branch;
+
+    site = word_at(STOCK_MINIMAL_MAIN_SITE);
+    veneer = word_at(DPOSLAB_FPGA_VENEER);
+    hook_address =
+        (uint32_t)(uintptr_t)dposlab_minimal_stock_fpga_hook;
+
+    /* Refuse an incompatible or already-patched EXE2 image. */
+    if (*site != STOCK_MINIMAL_MAIN_ORIGINAL)
+        return 0;
+
+    if (!encode_arm_branch(STOCK_MINIMAL_MAIN_SITE,
+                           DPOSLAB_FPGA_VENEER,
+                           0U,
+                           &branch))
+        return 0;
+
+    install_absolute_veneer(DPOSLAB_FPGA_VENEER, hook_address);
+    *site = branch;
+
+    cache_clean_range(DPOSLAB_FPGA_VENEER, 8U);
+    cache_clean_range(STOCK_MINIMAL_MAIN_SITE, 4U);
+    cache_invalidate_icache_all();
+    cache_invalidate_branch_predictor();
+    cache_dsb();
+    cache_isb();
+
+    return
+        *site == branch &&
+        veneer[0] == ARM_LDR_PC_PC_MINUS_4 &&
+        veneer[1] == hook_address;
 }

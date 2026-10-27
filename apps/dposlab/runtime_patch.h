@@ -3,4 +3,6 @@
 
 int dposlab_install_fpga_hook(void);
 
+int dposlab_install_minimal_stock_fpga_hook(void);
+
 #endif

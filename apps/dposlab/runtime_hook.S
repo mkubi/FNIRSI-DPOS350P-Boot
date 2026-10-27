@@ -473,3 +473,211 @@ dposlab_csi_pinmux_hook:
     bx      lr
 
 .size dposlab_csi_pinmux_hook, . - dposlab_csi_pinmux_hook
+
+
+/* ------------------------------------------------------------------------- */
+/* Stock SMEC transaction attempt checkpoints: EXE2 0x4004A0B0.             */
+/* ------------------------------------------------------------------------- */
+
+.equ STOCK_SMEC_ECHO68_TARGET,      0x4004A064
+.equ DPOSLAB_CP_SMEC_AFTER_ECHO68,  0x30
+.equ SMEC_ECHO68_CONTINUE,          0x4004A0F4
+
+.global dposlab_smec_echo68_hook
+.type dposlab_smec_echo68_hook, %function
+.extern dposlab_capture_checkpoint
+
+dposlab_smec_echo68_hook:
+    /* Replaces 0x4004A0F0: BL 0x4004A064. */
+    push    {r0-r12, lr}
+    ldmia   sp, {r0-r12}
+    ldr     r12, =STOCK_SMEC_ECHO68_TARGET
+    blx     r12
+
+    /* Post-call: r0=echo68, r7=requested ID, r8=value, r9=outer retry. */
+    push    {r0-r12, lr}
+    mov     r0, #DPOSLAB_CP_SMEC_AFTER_ECHO68
+    ldr     r1, =SMEC_ECHO68_CONTINUE
+    mrs     r2, cpsr
+    mov     r3, sp
+    bl      dposlab_capture_checkpoint
+
+    ldmia   sp, {r0-r12}
+    add     sp, sp, #56
+    ldr     lr, [sp, #52]
+    add     sp, sp, #56
+    bx      lr
+
+.size dposlab_smec_echo68_hook, . - dposlab_smec_echo68_hook
+
+.equ STOCK_SMEC_VALID67_TARGET,     0x4004A020
+.equ DPOSLAB_CP_SMEC_AFTER_VALID67, 0x31
+.equ SMEC_VALID67_CONTINUE,         0x4004A0FC
+
+.global dposlab_smec_valid67_hook
+.type dposlab_smec_valid67_hook, %function
+.extern dposlab_capture_checkpoint
+
+dposlab_smec_valid67_hook:
+    /* Replaces 0x4004A0F8: BL 0x4004A020. */
+    push    {r0-r12, lr}
+    ldmia   sp, {r0-r12}
+    ldr     r12, =STOCK_SMEC_VALID67_TARGET
+    blx     r12
+
+    /* Post-call: r0=valid67 bit0, r10=echo68, r7=ID, r8=value. */
+    push    {r0-r12, lr}
+    mov     r0, #DPOSLAB_CP_SMEC_AFTER_VALID67
+    ldr     r1, =SMEC_VALID67_CONTINUE
+    mrs     r2, cpsr
+    mov     r3, sp
+    bl      dposlab_capture_checkpoint
+
+    ldmia   sp, {r0-r12}
+    add     sp, sp, #56
+    ldr     lr, [sp, #52]
+    add     sp, sp, #56
+    bx      lr
+
+.size dposlab_smec_valid67_hook, . - dposlab_smec_valid67_hook
+
+
+/* Passive Job 2 state-transition checkpoints. */
+.equ STOCK_SMEC_JOB_START_TARGET,       0x40049FDC
+.equ CP_SMEC_JOB2_BEFORE_START,         0x32
+.equ CP_SMEC_JOB2_AFTER_START,          0x33
+.equ SMEC_JOB_START_CONTINUE,           0x4004A0EC
+
+.global dposlab_smec_job_start_hook
+.type dposlab_smec_job_start_hook, %function
+.extern dposlab_capture_checkpoint
+
+dposlab_smec_job_start_hook:
+    push    {r0-r12, lr}
+
+    mov     r0, #CP_SMEC_JOB2_BEFORE_START
+    ldr     r1, =0x4004A0E8
+    mrs     r2, cpsr
+    mov     r3, sp
+    bl      dposlab_capture_checkpoint
+
+    ldmia   sp, {r0-r12}
+    ldr     r12, =STOCK_SMEC_JOB_START_TARGET
+    blx     r12
+
+    push    {r0-r12, lr}
+    mov     r0, #CP_SMEC_JOB2_AFTER_START
+    ldr     r1, =SMEC_JOB_START_CONTINUE
+    mrs     r2, cpsr
+    mov     r3, sp
+    bl      dposlab_capture_checkpoint
+
+    ldmia   sp, {r0-r12}
+    add     sp, sp, #56
+    ldr     lr, [sp, #52]
+    add     sp, sp, #56
+    bx      lr
+.size dposlab_smec_job_start_hook, . - dposlab_smec_job_start_hook
+
+.equ STOCK_SMEC_POLL65_TARGET,         0x4004A040
+.equ CP_SMEC_JOB2_BEFORE_POLL65,       0x34
+.equ CP_SMEC_JOB2_AFTER_POLL65,        0x35
+.equ SMEC_POLL65_CONTINUE,             0x4004A0F0
+
+.global dposlab_smec_poll65_hook
+.type dposlab_smec_poll65_hook, %function
+.extern dposlab_capture_checkpoint
+
+dposlab_smec_poll65_hook:
+    push    {r0-r12, lr}
+
+    mov     r0, #CP_SMEC_JOB2_BEFORE_POLL65
+    ldr     r1, =0x4004A0EC
+    mrs     r2, cpsr
+    mov     r3, sp
+    bl      dposlab_capture_checkpoint
+
+    ldmia   sp, {r0-r12}
+    ldr     r12, =STOCK_SMEC_POLL65_TARGET
+    blx     r12
+
+    push    {r0-r12, lr}
+    mov     r0, #CP_SMEC_JOB2_AFTER_POLL65
+    ldr     r1, =SMEC_POLL65_CONTINUE
+    mrs     r2, cpsr
+    mov     r3, sp
+    bl      dposlab_capture_checkpoint
+
+    ldmia   sp, {r0-r12}
+    add     sp, sp, #56
+    ldr     lr, [sp, #52]
+    add     sp, sp, #56
+    bx      lr
+.size dposlab_smec_poll65_hook, . - dposlab_smec_poll65_hook
+
+
+/* ------------------------------------------------------------------------- */
+/* Minimal stock runtime Stage 1.                                            */
+/*                                                                           */
+/* EXE2 has already executed:                                                */
+/*   sys_clock_init(1152000000)                                              */
+/*   sys_mmu_init()                                                          */
+/*   System_Init() is intentionally skipped.                                */
+/*                                                                           */
+/* This hook replaces the System_Init BL before platform/application init,    */
+/* calls the real stock FPGA_Start, presents the DPOSLAB result, then stops. */
+/* ------------------------------------------------------------------------- */
+
+.equ STOCK_MINIMAL_SYSTEM_INIT_PART2, 0x40042CD8
+.equ STOCK_MINIMAL_FPGA_START,    0x40049188
+.equ STOCK_MINIMAL_SMEC_PREAMBLE,  0x4004A13C
+.equ STOCK_MINIMAL_TIMING_WRITE,   0x40049FB8
+.equ STOCK_MINIMAL_SMEC_TRANSACTION, 0x4004A0B0
+
+.global dposlab_minimal_stock_fpga_hook
+.type dposlab_minimal_stock_fpga_hook, %function
+
+.extern dposlab_capture_before
+.extern dposlab_capture_after
+.extern dposlab_fpga_return_monitor
+
+.extern dposlab_pre_systeminit_hook_only_monitor
+
+.extern dposlab_custom_smec_result
+.extern dposlab_custom_smec_stock_primitives_test
+
+dposlab_minimal_stock_fpga_hook:
+    /* Confirmed stock prerequisite. */
+    ldr     r12, =STOCK_MINIMAL_SYSTEM_INIT_PART2
+    blx     r12
+
+    push    {r0-r12, lr}
+    mrs     r0, cpsr
+    mov     r1, sp
+    bl      dposlab_capture_before
+    ldmia   sp, {r0-r12}
+
+    /* Known-good stock FPGA_Start half of Test A. */
+    ldr     r12, =STOCK_MINIMAL_FPGA_START
+    blx     r12
+
+    push    {r0-r12, lr}
+    mrs     r0, cpsr
+    mov     r1, sp
+    bl      dposlab_capture_after
+    add     sp, sp, #56
+
+    /*
+     * Replace only stock SMEC with the current Custom implementation.
+     * No stock SMEC preamble or transaction helper is called here.
+     */
+    ldr     r0, =dposlab_custom_smec_result
+    bl      dposlab_custom_smec_stock_primitives_test
+
+    bl      dposlab_fpga_return_monitor
+
+1:
+    wfi
+    b       1b
+
+.size dposlab_minimal_stock_fpga_hook, . - dposlab_minimal_stock_fpga_hook

@@ -8,9 +8,10 @@ ROOT := ../..
 BUILD := $(ROOT)/build/apps/dposlab
 TARGET := $(BUILD)/DPOSLAB
 DPOSLAB_MODE ?= 1
+DPOSLAB_PRIMITIVE_TEST ?= 2
 INCLUDES := -I$(ROOT)/arch/r11 -I$(ROOT)/board/dpos350p -I$(ROOT)/drivers -I$(ROOT)/ui -I$(ROOT)/loader
-CFLAGS := -O2 -mcpu=cortex-a7 -marm -mno-unaligned-access -ffreestanding -fno-builtin -fno-common -fno-stack-protector -fno-unwind-tables -fno-asynchronous-unwind-tables -nostdlib -Wall -Wextra -Werror -DDPOSLAB_MODE=$(DPOSLAB_MODE) $(INCLUDES)
-SOURCES_C :=     main.c     stock_api.c     runtime_patch.c     runtime_snapshot.c     runtime_trace.c     runtime_export.c     $(ROOT)/arch/r11/cache.c     $(ROOT)/drivers/gpio.c     $(ROOT)/drivers/display.c     $(ROOT)/drivers/fpga_bus_ro.c     $(ROOT)/ui/font8x8.c     $(ROOT)/ui/console.c
+CFLAGS := -O2 -mcpu=cortex-a7 -marm -mno-unaligned-access -ffreestanding -fno-builtin -fno-common -fno-stack-protector -fno-unwind-tables -fno-asynchronous-unwind-tables -nostdlib -Wall -Wextra -Werror -DDPOSLAB_MODE=$(DPOSLAB_MODE) -DDPOSLAB_PRIMITIVE_TEST=$(DPOSLAB_PRIMITIVE_TEST) $(INCLUDES)
+SOURCES_C :=     stock_primitive_smec_test.c     main.c     stock_api.c     runtime_patch.c     runtime_snapshot.c     runtime_trace.c     runtime_export.c     $(ROOT)/arch/r11/cache.c     $(ROOT)/drivers/gpio.c     $(ROOT)/drivers/display.c     $(ROOT)/drivers/fpga_bus_ro.c     $(ROOT)/ui/font8x8.c     $(ROOT)/ui/console.c
 SOURCES_S := start.S stock_jump.S runtime_hook.S
 OBJECTS := $(patsubst %.c,$(BUILD)/%.o,$(SOURCES_C)) $(patsubst %.S,$(BUILD)/%.o,$(SOURCES_S))
 .PHONY: all clean
