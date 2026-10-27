@@ -4,6 +4,9 @@
 
 #define STOCK_FPGA_CALL_SITE         0x40034738U
 #define STOCK_FPGA_CALL_ORIGINAL     0xEB005292U
+#define STOCK_SMEC_MATRIX_SITE       0x40034750U
+#define STOCK_SMEC_MATRIX_ORIGINAL   0xEB005681U
+#define DPOSLAB_SMEC_MATRIX_VENEER   0x40055AECU
 #define DPOSLAB_CUSTOM_FPGA_VENEER   0x40055AE4U
 #define DPOSLAB_FPGA_VENEER          0x40055B4CU
 
@@ -701,11 +704,12 @@ int dposlab_install_fpga_hook(void)
 
 
 extern void dposlab_minimal_stock_fpga_hook(void);
+extern void dposlab_smec_matrix_init(void);
 extern void dposlab_custom_fpga_start(void);
 
 int dposlab_install_minimal_stock_fpga_hook(void)
 {
-    volatile uint32_t *custom_fpga_site;
+    volatile uint32_t *smec_matrix_site;
     volatile uint32_t *gui_site;
     volatile uint32_t *gt911_site;
     volatile uint32_t *win_site;
@@ -730,12 +734,12 @@ int dposlab_install_minimal_stock_fpga_hook(void)
     volatile uint32_t *site;
     volatile uint32_t *veneer;
     uint32_t hook_address;
-    uint32_t custom_fpga_address;
-    uint32_t custom_fpga_branch;
+    uint32_t smec_matrix_address;
+    uint32_t smec_matrix_branch;
     uint32_t branch;
 
     site = word_at(STOCK_MINIMAL_MAIN_SITE);
-    custom_fpga_site = word_at(STOCK_FPGA_CALL_SITE);
+    smec_matrix_site = word_at(STOCK_SMEC_MATRIX_SITE);
     gui_site = word_at(STOCK_GUI_INIT_SITE);
     gt911_site = word_at(STOCK_GT911_INIT_SITE);
     win_site = word_at(STOCK_WIN_INIT_SITE);
@@ -760,13 +764,13 @@ int dposlab_install_minimal_stock_fpga_hook(void)
     veneer = word_at(DPOSLAB_FPGA_VENEER);
     hook_address =
         (uint32_t)(uintptr_t)dposlab_minimal_stock_fpga_hook;
-    custom_fpga_address =
-        (uint32_t)(uintptr_t)dposlab_custom_fpga_start;
+    smec_matrix_address =
+        (uint32_t)(uintptr_t)dposlab_smec_matrix_init;
 
     /* Refuse an incompatible or already-patched EXE2 image. */
     if (*site != STOCK_MINIMAL_MAIN_ORIGINAL)
         return 0;
-    if (*custom_fpga_site != STOCK_FPGA_CALL_ORIGINAL)
+    if (*smec_matrix_site != STOCK_SMEC_MATRIX_ORIGINAL)
         return 0;
     if (*gui_site != STOCK_GUI_INIT_ORIGINAL && *gui_site != ARM_NOP)
         return 0;
@@ -845,15 +849,14 @@ int dposlab_install_minimal_stock_fpga_hook(void)
     *power_init_site = ARM_NOP;
     *vertical_init_site = ARM_NOP;
 
-    if (!encode_arm_branch(STOCK_FPGA_CALL_SITE,
-                           DPOSLAB_CUSTOM_FPGA_VENEER,
+    if (!encode_arm_branch(STOCK_SMEC_MATRIX_SITE,
+                           DPOSLAB_SMEC_MATRIX_VENEER,
                            1U,
-                           &custom_fpga_branch))
+                           &smec_matrix_branch))
         return 0;
-
-    install_absolute_veneer(DPOSLAB_CUSTOM_FPGA_VENEER,
-                            custom_fpga_address);
-    *custom_fpga_site = custom_fpga_branch;
+    install_absolute_veneer(DPOSLAB_SMEC_MATRIX_VENEER,
+                            smec_matrix_address);
+    *smec_matrix_site = smec_matrix_branch;
 
     if (!encode_arm_branch(STOCK_MINIMAL_MAIN_SITE,
                            DPOSLAB_FPGA_VENEER,
@@ -865,6 +868,8 @@ int dposlab_install_minimal_stock_fpga_hook(void)
     *site = branch;
 
     cache_clean_range(DPOSLAB_FPGA_VENEER, 8U);
+    cache_clean_range(DPOSLAB_SMEC_MATRIX_VENEER, 8U);
+    cache_clean_range(STOCK_SMEC_MATRIX_SITE, 4U);
     cache_clean_range(DPOSLAB_CUSTOM_FPGA_VENEER, 8U);
     cache_clean_range(STOCK_FPGA_CALL_SITE, 4U);
     cache_clean_range(STOCK_GUI_INIT_SITE, 4U);
