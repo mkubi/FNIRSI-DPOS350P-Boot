@@ -96,7 +96,15 @@ void ms5351_stock_init_95m_10m(struct ms5351_stock_result *result)
     result->completed = 0;
 
     /* Stock 0x4005F1BC: PE20/PE21 as GPIO outputs. */
-    PE_CFG2 &= ~((0xFU << 16) | (0xFU << 20));
+    /*
+     * Stock 0x4005F1BC configures PE20 and PE21 as GPIO outputs:
+     * function 1 in PE_CFG2, not function 0/input.
+     */
+    PE_CFG2 =
+        (PE_CFG2 & ~((0xFU << 16) | (0xFU << 20))) |
+        (0x1U << 16) |
+        (0x1U << 20);
+
     pin_high(SCL_PIN);
     pin_high(SDA_PIN);
 
