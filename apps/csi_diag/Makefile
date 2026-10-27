@@ -42,6 +42,9 @@ SOURCES_C := \
     stage24_fpga_preinit_test.c \
     stage25_stock_id_raw4_test.c \
     stock_parity_test.c \
+    stage27a_capture_test.c \
+    stage27b_smec_capture_test.c \
+    stage29_verified_job1_test.c \
     fpga_primitive_test.c \
     ui_adapter.c \
     $(ROOT)/arch/r11/cache.c \

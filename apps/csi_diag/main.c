@@ -22,6 +22,9 @@ void fpga_smec_job2_recovery_main(void);
 void fpga_smec_stage24_main(void);
 void fpga_smec_stage25_main(void);
 void csi_stock_parity_main(void);
+void csi_stage27a_main(void);
+void csi_stage27b_main(void);
+void csi_stage29_main(void);
 
 #if CSI_DIAG_STAGE == 1
 static void show_snapshot(const struct r11_csi_snapshot *s)
@@ -45,7 +48,13 @@ static void show_snapshot(const struct r11_csi_snapshot *s)
 
 void main(void)
 {
-#if CSI_DIAG_STAGE == 26
+#if CSI_DIAG_STAGE == 29
+    csi_stage29_main();
+#elif CSI_DIAG_STAGE == 28
+    csi_stage27b_main();
+#elif CSI_DIAG_STAGE == 27
+    csi_stage27a_main();
+#elif CSI_DIAG_STAGE == 26
     csi_stock_parity_main();
 #elif CSI_DIAG_STAGE == 25
     fpga_smec_stage25_main();

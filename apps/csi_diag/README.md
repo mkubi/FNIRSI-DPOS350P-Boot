@@ -1,5 +1,61 @@
 # CSI single-bank smoke test
 
+## Stage 27B SMEC-initialized single-bank capture
+
+Build selector: `CSI_DIAG_STAGE=28`.
+
+Stage 27B is the controlled counterpart to Stage 27A. The capture lifecycle,
+private guarded buffer, acquisition mode, polling limits and diagnostics are
+unchanged. The only intended experimental change is execution of the seven
+already reconstructed `SMEC_Init()` startup jobs before CSI initialization and
+the acquisition readiness/position sequence.
+
+The screen reports SMEC completion, completed-job count, error code and the
+aggregate 0x65 polling count alongside the same CSI and buffer diagnostics used
+by Stage 27A.
+
+Interpretation boundary:
+
+- Stage 27A fail + Stage 27B pass is evidence that the startup job/service
+  initialization is required for the tested FPGA sample-stream path.
+- If both stages fail, the CSI receiver baseline remains confirmed and another
+  stock FPGA/acquisition initialization phase is still missing.
+
+## Stage 27A no-SMEC single-bank capture
+
+Stage 27A takes the HW-confirmed Stage 26 CSI parity baseline and adds exactly
+one bank-0 capture attempt. It deliberately does **not** run the 0x64..0x6B
+SMEC/job startup sequence.
+
+The experiment asks one narrow question: is the confirmed CSI initialization
+plus the reconstructed FPGA acquisition/control sequence sufficient for one
+FPGA-to-CSI-to-RAM transfer without SMEC initialization?
+
+The sequence is bounded and uses a private guarded destination buffer:
+
+```text
+FPGA baseline ID
+stock-parity CSI init
+FPGA acquisition ready/position probe
+FPGA stream quantity + position + bank 0
+sentinel/guard preparation
+PE -> CSI mode
+CSI BUF0 -> private destination
+ACK stale completion
+Timer0 gate off
+CSI capture enable
+PE1 high
+bounded CSI DONE poll
+PE1 low
+Timer0 gate on
+ACK + capture disable
+restore FPGA GPIO control mode
+cache invalidate + buffer analysis
+```
+
+Success requires CSI DONE, intact guards, and at least one changed destination
+byte. Stage 27A always reports `SMEC USED: NO`.
+
 ## Stage 26 stock CSI initialization parity
 
 Stage 26 is a no-capture Custom App test derived from the HW-confirmed
