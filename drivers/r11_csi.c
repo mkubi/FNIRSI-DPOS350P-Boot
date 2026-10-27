@@ -18,6 +18,13 @@
 #define CSI_REG_GEO0   (R11_CSI_BASE + 0x80U)
 #define CSI_REG_GEO1   (R11_CSI_BASE + 0x84U)
 #define CSI_REG_GEO2   (R11_CSI_BASE + 0x88U)
+#define STOCK_CSI_DESCRIPTOR_A_FIELD_10 \
+    (*(volatile uint32_t *)0x42E554ACU)
+#define STOCK_CSI_CONTROLLER_BASE0 \
+    (*(volatile uint32_t *)0x42E68C50U)
+
+#define CSI_REG_0000 \
+    (R11_CSI_BASE + 0x00U)
 
 static int wait_mask_set(uintptr_t address, uint32_t mask,
                          uint32_t timeout_ms)
@@ -161,11 +168,16 @@ int r11_csi_stock_parity_init(
 
     r->pll_ready = 0;
 
-    /* Stock 0x40065F48: bus gate/reset and CSI module-clock sequence. */
+    /*
+     * Stock 0x40065F48:
+     * CSI bus gate/reset and CSI module-clock sequence.
+     */
     value = mmio_read32(CCU_BASE + 0x64U);
     mmio_write32(CCU_BASE + 0x64U, value | (1U << 8));
+
     value = mmio_read32(CCU_BASE + 0x2C4U);
     mmio_write32(CCU_BASE + 0x2C4U, value | (1U << 8));
+
     cache_dsb();
 
     value = mmio_read32(CCU_BASE + 0x100U);
@@ -173,22 +185,64 @@ int r11_csi_stock_parity_init(
 
     value = mmio_read32(CCU_BASE + 0x2CU);
     mmio_write32(CCU_BASE + 0x2CU, value | 0x80000000U);
-    r->pll_ready = wait_mask_set(CCU_BASE + 0x2CU,
-                                 0x01000000U, 100U);
+
+    r->pll_ready = wait_mask_set(
+        CCU_BASE + 0x2CU,
+        0x01000000U,
+        100U);
+
     if (!r->pll_ready)
         return 0;
 
     mmio_write32(CCU_BASE + 0x134U, 0x81800000U);
     cache_dsb();
 
-    /* DPOSLAB boundary immediately after 0x40065F48. */
+    /*
+     * DPOSLAB boundary immediately after stock 0x40065F48.
+     */
     r->initial_if_cfg = mmio_read32(CSI_REG_IF_CFG);
     r->initial_hsize = mmio_read32(CSI_REG_HSIZE);
 
     /*
-     * Stock 0x40065FA8(8000): confirmed final interface and HSIZE state.
-     * Keep capture disabled. Geometry values are the confirmed stock bank-0
-     * baseline already used by the existing diagnostic driver.
+     * C2:
+     * Reproduce stock 0x400658BC(0, 0x01CB4000).
+     *
+     * This removes the dependency on an inherited controller-base table.
+     */
+    STOCK_CSI_CONTROLLER_BASE0 = R11_CSI_BASE;
+    cache_dsb();
+
+    /*
+     * C3:
+     * Reproduce the stock controller lifecycle:
+     *
+     *   0x40065C68(0)
+     *       CSI +0x00 &= ~1
+     *       CSI +0x00 |=  1
+     *
+     *   0x40065C64(0)
+     *       CSI +0x00 |=  1
+     *
+     * CSI +0x00 is not the capture-mode register.
+     * Capture mode is CSI +0x08.
+     */
+    value = mmio_read32(CSI_REG_0000);
+    mmio_write32(CSI_REG_0000, value & ~1U);
+
+    value = mmio_read32(CSI_REG_0000);
+    mmio_write32(CSI_REG_0000, value | 1U);
+
+    value = mmio_read32(CSI_REG_0000);
+    mmio_write32(CSI_REG_0000, value | 1U);
+
+    cache_dsb();
+
+    /*
+     * Current temporary custom replacement for stock 0x40065FA8(8000).
+     *
+     * These remain hard-coded stock-observed values for the present
+     * diagnostic stage. Descriptor-derived configuration will be
+     * reconstructed only after the RAM/runtime-state dependency is proven.
      */
     mmio_write32(CSI_REG_MODE, 0U);
     mmio_write32(CSI_REG_IF_CFG, 0x01060400U);
@@ -196,18 +250,40 @@ int r11_csi_stock_parity_init(
     mmio_write32(CSI_REG_GEO0, 0x18000000U);
     mmio_write32(CSI_REG_GEO1, 0x00010000U);
     mmio_write32(CSI_REG_GEO2, 0x2374287CU);
+
     cache_dsb();
 
     r->final_if_cfg = mmio_read32(CSI_REG_IF_CFG);
     r->final_hsize = mmio_read32(CSI_REG_HSIZE);
 
-    /* Stock 0x40065EF8, then the remainder of 0x40066054. */
+    /*
+     * Stock 0x40065EF8, followed by the currently reproduced parts
+     * of stock 0x40066054.
+     */
     csi_pinmux_enable();
+
     r->csi_pe_cfg0 = mmio_read32(PE_CFG0);
     r->csi_pe_cfg1 = mmio_read32(PE_CFG1);
 
     r11_csi_set_buffer0(buffer_address);
     mmio_write32(CSI_REG_IRQ_EN, R11_CSI_DONE);
+
+    /*
+     * C1 diagnostic state:
+     *
+     * Literal-pool analysis confirms:
+     *
+     *   Descriptor A        = 0x42E5549C
+     *   Descriptor A +0x10  = 0x42E554AC
+     *
+     * Stock 0x40065FA8 writes 1 here. Stock 0x400660AC later reads
+     * this field when selecting the CSI capture mode.
+     *
+     * C1 alone did not restore capture. Keep it active while testing
+     * C2/C3 so the diagnostic changes accumulate in known order.
+     */
+    STOCK_CSI_DESCRIPTOR_A_FIELD_10 = 1U;
+
     cache_dsb();
 
     r->buffer0 = mmio_read32(CSI_REG_BUF0);
