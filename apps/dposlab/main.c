@@ -99,7 +99,7 @@ void dposlab_fpga_return_monitor(void)
 int main(const dposlab_handoff_t *handoff)
 {
     display_init(); console_init(WHITE,BLACK,2U); console_clear();
-    console_putln("DPOSLAB STOCK MAIN PRE-WINOPENA");
+    console_putln("DPOSLAB ACQ MIN NO SAVED INFO");
     console_putln("STEP                         RESULT / VALUE");
     console_putln("-------------------------------------------");
     console_puts("HANDOFF PTR                  ");
@@ -222,7 +222,7 @@ int main(const dposlab_handoff_t *handoff)
     put_hex(handoff->stage2_sp);
     console_putln("");
 
-    console_putln("JUMP TO STOCK PRE-WINOPEN    NOW");
+    console_putln("JUMP TO NO POWER/VERT/HC    NOW");
     console_present();
 
     stock_jump_exe2(handoff->stage2_sp);

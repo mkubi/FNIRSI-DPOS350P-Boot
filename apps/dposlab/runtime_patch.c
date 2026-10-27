@@ -665,6 +665,38 @@ int dposlab_install_fpga_hook(void)
 #define STOCK_UI_COLOR_INIT_ORIGINAL    0xEBFF94E9U
 #define STOCK_FATFS_INIT_SITE           0x4003474CU
 #define STOCK_FATFS_INIT_ORIGINAL       0xEB00550BU
+#define STOCK_FACTORY_CHECK_SITE         0x4003476CU
+#define STOCK_FACTORY_CHECK_ORIGINAL     0xEB00755FU
+#define STOCK_SYS_CONFIG_EXEC_SITE       0x40034770U
+#define STOCK_SYS_CONFIG_EXEC_ORIGINAL   0xEB0027E4U
+#define STOCK_CHECK_UPDATE_SITE          0x40034768U
+#define STOCK_CHECK_UPDATE_ORIGINAL      0xEB006A71U
+#define STOCK_GEN_INIT_SITE               0x40034764U
+#define STOCK_GEN_INIT_ORIGINAL           0xEB00627EU
+#define STOCK_HARDCOST_INIT_SITE          0x40034760U
+#define STOCK_HARDCOST_INIT_ORIGINAL      0xEB0029EDU
+#define STOCK_VERTICAL_INIT_SITE          0x4003475CU
+#define STOCK_VERTICAL_INIT_ORIGINAL      0xEB00576AU
+#define STOCK_HORIZONTAL_INIT_SITE        0x40034758U
+#define STOCK_HORIZONTAL_INIT_ORIGINAL    0xEB0017B3U
+#define STOCK_POWER_INIT_SITE             0x40034754U
+#define STOCK_POWER_INIT_ORIGINAL         0xEB00568FU
+#define STOCK_SMEC_INIT_SITE              0x40034750U
+#define STOCK_SMEC_INIT_ORIGINAL          0xEB005681U
+#define STOCK_LANGUAGE_INIT_SITE          0x40034734U
+#define STOCK_LANGUAGE_INIT_ORIGINAL      0xEB004418U
+#define STOCK_GET_SYS_SAVED_INFO_SITE     0x40034730U
+#define STOCK_GET_SYS_SAVED_INFO_ORIGINAL 0xEB004017U
+#define STOCK_SPI_FLASH_INIT_SITE         0x4003472CU
+#define STOCK_SPI_FLASH_INIT_ORIGINAL     0xEB003B50U
+#define STOCK_MEMORY_TYPE_MOV_SITE         0x40034714U
+#define STOCK_MEMORY_TYPE_MOV_ORIGINAL     0xE3A00001U
+#define STOCK_MEMORY_TYPE_LDR_SITE         0x40034718U
+#define STOCK_MEMORY_TYPE_LDR_ORIGINAL     0xE59F1078U
+#define STOCK_MEMORY_TYPE_STR_SITE         0x4003471CU
+#define STOCK_MEMORY_TYPE_STR_ORIGINAL     0xE5810000U
+#define STOCK_ALL_INFO_INIT_SITE           0x40034720U
+#define STOCK_ALL_INFO_INIT_ORIGINAL       0xEB002A21U
 
 
 extern void dposlab_minimal_stock_fpga_hook(void);
@@ -676,6 +708,22 @@ int dposlab_install_minimal_stock_fpga_hook(void)
     volatile uint32_t *win_site;
     volatile uint32_t *ui_color_site;
     volatile uint32_t *fatfs_site;
+    volatile uint32_t *factory_check_site;
+    volatile uint32_t *sys_config_exec_site;
+    volatile uint32_t *check_update_site;
+    volatile uint32_t *gen_init_site;
+    volatile uint32_t *hardcost_site;
+    volatile uint32_t *vertical_init_site;
+    volatile uint32_t *horizontal_init_site;
+    volatile uint32_t *power_init_site;
+    volatile uint32_t *smec_init_site;
+    volatile uint32_t *language_init_site;
+    volatile uint32_t *get_sys_saved_info_site;
+    volatile uint32_t *spi_flash_init_site;
+    volatile uint32_t *memory_type_mov_site;
+    volatile uint32_t *memory_type_ldr_site;
+    volatile uint32_t *memory_type_str_site;
+    volatile uint32_t *all_info_init_site;
     volatile uint32_t *site;
     volatile uint32_t *veneer;
     uint32_t hook_address;
@@ -687,6 +735,22 @@ int dposlab_install_minimal_stock_fpga_hook(void)
     win_site = word_at(STOCK_WIN_INIT_SITE);
     ui_color_site = word_at(STOCK_UI_COLOR_INIT_SITE);
     fatfs_site = word_at(STOCK_FATFS_INIT_SITE);
+    factory_check_site = word_at(STOCK_FACTORY_CHECK_SITE);
+    sys_config_exec_site = word_at(STOCK_SYS_CONFIG_EXEC_SITE);
+    check_update_site = word_at(STOCK_CHECK_UPDATE_SITE);
+    gen_init_site = word_at(STOCK_GEN_INIT_SITE);
+    hardcost_site = word_at(STOCK_HARDCOST_INIT_SITE);
+    vertical_init_site = word_at(STOCK_VERTICAL_INIT_SITE);
+    horizontal_init_site = word_at(STOCK_HORIZONTAL_INIT_SITE);
+    power_init_site = word_at(STOCK_POWER_INIT_SITE);
+    smec_init_site = word_at(STOCK_SMEC_INIT_SITE);
+    language_init_site = word_at(STOCK_LANGUAGE_INIT_SITE);
+    get_sys_saved_info_site = word_at(STOCK_GET_SYS_SAVED_INFO_SITE);
+    spi_flash_init_site = word_at(STOCK_SPI_FLASH_INIT_SITE);
+    memory_type_mov_site = word_at(STOCK_MEMORY_TYPE_MOV_SITE);
+    memory_type_ldr_site = word_at(STOCK_MEMORY_TYPE_LDR_SITE);
+    memory_type_str_site = word_at(STOCK_MEMORY_TYPE_STR_SITE);
+    all_info_init_site = word_at(STOCK_ALL_INFO_INIT_SITE);
     veneer = word_at(DPOSLAB_FPGA_VENEER);
     hook_address =
         (uint32_t)(uintptr_t)dposlab_minimal_stock_fpga_hook;
@@ -704,12 +768,72 @@ int dposlab_install_minimal_stock_fpga_hook(void)
         return 0;
     if (*fatfs_site != STOCK_FATFS_INIT_ORIGINAL && *fatfs_site != ARM_NOP)
         return 0;
+    if (*factory_check_site != STOCK_FACTORY_CHECK_ORIGINAL &&
+        *factory_check_site != ARM_NOP)
+        return 0;
+    if (*sys_config_exec_site != STOCK_SYS_CONFIG_EXEC_ORIGINAL &&
+        *sys_config_exec_site != ARM_NOP)
+        return 0;
+    if (*check_update_site != STOCK_CHECK_UPDATE_ORIGINAL &&
+        *check_update_site != ARM_NOP)
+        return 0;
+    if (*gen_init_site != STOCK_GEN_INIT_ORIGINAL &&
+        *gen_init_site != ARM_NOP)
+        return 0;
+    if (*hardcost_site != STOCK_HARDCOST_INIT_ORIGINAL &&
+        *hardcost_site != ARM_NOP)
+        return 0;
+    if (*vertical_init_site != STOCK_VERTICAL_INIT_ORIGINAL &&
+        *vertical_init_site != ARM_NOP)
+        return 0;
+    if (*horizontal_init_site != STOCK_HORIZONTAL_INIT_ORIGINAL &&
+        *horizontal_init_site != ARM_NOP)
+        return 0;
+    if (*power_init_site != STOCK_POWER_INIT_ORIGINAL &&
+        *power_init_site != ARM_NOP)
+        return 0;
+    if (*smec_init_site != STOCK_SMEC_INIT_ORIGINAL &&
+        *smec_init_site != ARM_NOP)
+        return 0;
+    if (*language_init_site != STOCK_LANGUAGE_INIT_ORIGINAL &&
+        *language_init_site != ARM_NOP)
+        return 0;
+    if (*get_sys_saved_info_site != STOCK_GET_SYS_SAVED_INFO_ORIGINAL &&
+        *get_sys_saved_info_site != ARM_NOP)
+        return 0;
+    if (*spi_flash_init_site != STOCK_SPI_FLASH_INIT_ORIGINAL &&
+        *spi_flash_init_site != ARM_NOP)
+        return 0;
+    if (*memory_type_mov_site != STOCK_MEMORY_TYPE_MOV_ORIGINAL &&
+        *memory_type_mov_site != ARM_NOP)
+        return 0;
+    if (*memory_type_ldr_site != STOCK_MEMORY_TYPE_LDR_ORIGINAL &&
+        *memory_type_ldr_site != ARM_NOP)
+        return 0;
+    if (*memory_type_str_site != STOCK_MEMORY_TYPE_STR_ORIGINAL &&
+        *memory_type_str_site != ARM_NOP)
+        return 0;
+    if (*all_info_init_site != STOCK_ALL_INFO_INIT_ORIGINAL &&
+        *all_info_init_site != ARM_NOP)
+        return 0;
 
     *gui_site = ARM_NOP;
     *gt911_site = ARM_NOP;
     *win_site = ARM_NOP;
     *ui_color_site = ARM_NOP;
     *fatfs_site = ARM_NOP;
+    *factory_check_site = ARM_NOP;
+    *check_update_site = ARM_NOP;
+    *gen_init_site = ARM_NOP;
+    *hardcost_site = ARM_NOP;
+    *language_init_site = ARM_NOP;
+    *get_sys_saved_info_site = ARM_NOP;
+    *spi_flash_init_site = ARM_NOP;
+    *memory_type_mov_site = ARM_NOP;
+    *memory_type_ldr_site = ARM_NOP;
+    *memory_type_str_site = ARM_NOP;
+    *power_init_site = ARM_NOP;
+    *vertical_init_site = ARM_NOP;
 
     if (!encode_arm_branch(STOCK_MINIMAL_MAIN_SITE,
                            DPOSLAB_FPGA_VENEER,
@@ -726,6 +850,22 @@ int dposlab_install_minimal_stock_fpga_hook(void)
     cache_clean_range(STOCK_WIN_INIT_SITE, 4U);
     cache_clean_range(STOCK_UI_COLOR_INIT_SITE, 4U);
     cache_clean_range(STOCK_FATFS_INIT_SITE, 4U);
+    cache_clean_range(STOCK_FACTORY_CHECK_SITE, 4U);
+    cache_clean_range(STOCK_SYS_CONFIG_EXEC_SITE, 4U);
+    cache_clean_range(STOCK_CHECK_UPDATE_SITE, 4U);
+    cache_clean_range(STOCK_GEN_INIT_SITE, 4U);
+    cache_clean_range(STOCK_HARDCOST_INIT_SITE, 4U);
+    cache_clean_range(STOCK_VERTICAL_INIT_SITE, 4U);
+    cache_clean_range(STOCK_HORIZONTAL_INIT_SITE, 4U);
+    cache_clean_range(STOCK_POWER_INIT_SITE, 4U);
+    cache_clean_range(STOCK_SMEC_INIT_SITE, 4U);
+    cache_clean_range(STOCK_LANGUAGE_INIT_SITE, 4U);
+    cache_clean_range(STOCK_GET_SYS_SAVED_INFO_SITE, 4U);
+    cache_clean_range(STOCK_SPI_FLASH_INIT_SITE, 4U);
+    cache_clean_range(STOCK_MEMORY_TYPE_MOV_SITE, 4U);
+    cache_clean_range(STOCK_MEMORY_TYPE_LDR_SITE, 4U);
+    cache_clean_range(STOCK_MEMORY_TYPE_STR_SITE, 4U);
+    cache_clean_range(STOCK_ALL_INFO_INIT_SITE, 4U);
     cache_clean_range(STOCK_MINIMAL_MAIN_SITE, 4U);
     cache_invalidate_icache_all();
     cache_invalidate_branch_predictor();

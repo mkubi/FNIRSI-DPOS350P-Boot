@@ -77,54 +77,39 @@ void dposlab_acq_variant1_probe(void)
 void dposlab_acq_variant1_monitor(void)
 {
     const struct dposlab_acq_probe_result *r = &dposlab_acq_probe_result;
+    const int magic_valid =
+        r->factory_magic0 == 0x5A5555A5U &&
+        r->factory_magic1 == 0xA5AA555AU &&
+        r->factory_magic2 == 0x5A5AA5AAU &&
+        r->factory_magic3 == 0xA5A5AA55U;
 
     console_init(WHITE, BLACK, 2U);
     console_clear();
-    console_putln("DPOSLAB STOCK MAIN PRE-WINOPEN");
-    console_putln("-----------------------------");
-    console_putln("STOCK MAIN EARLY FLOW        PASS");
-    console_putln("GUI/GT911/WIN/COLOR/FAT      NOP");
-    console_putln("FactoryCheck                 PASS");
-    console_putln("SysConfigExec                PASS");
-    console_putln("WIN_OpenMainBank             NOT RUN");
+    console_putln("DPOSLAB ACQ MINIMIZATION");
+    console_putln("------------------------");
+    console_putln("REQUIRED / ACTIVE");
+    console_putln("  AllInfo     FPGA_Start");
+    console_putln("  SMEC_Init   Horizontal");
+    console_putln("  SysConfigExec");
+    console_putln("  AllInfoInit");
     console_putln("");
-    console_puts("MAGIC +00                    ");
-    put_hex(r->factory_magic0);
+    console_putln("WHOLE-FUNCTION MINIMUM");
     console_putln("");
-    console_puts("MAGIC +04                    ");
-    put_hex(r->factory_magic1);
+    console_putln("ALREADY NOT REQUIRED");
+    console_putln("  SPI GetSaved Language");
+    console_putln("  HardCost Gen CheckUpdate");
+    console_putln("  Factory GUI Touch Win FAT");
     console_putln("");
-    console_puts("MAGIC +08                    ");
-    put_hex(r->factory_magic2);
-    console_putln("");
-    console_puts("MAGIC +0C                    ");
-    put_hex(r->factory_magic3);
-    console_putln("");
-    console_puts("ACQ MODE BYTE                ");
-    put_hex(r->mode_byte);
-    console_putln("");
-    console_puts("RAW 0x0A BEFORE PREP         ");
-    put_hex(r->raw0a);
-    console_putln("");
-    console_puts("0x0A AFTER STOCK PREP        ");
-    put_hex(r->prepared0a);
-    console_putln("");
-    console_puts("READY                        ");
-    console_putln(r->ready ? "YES" : "NO");
-    console_puts("POLL COUNT                   ");
-    put_hex(r->polls);
-    console_putln("");
-    console_puts("PE CFG0                      ");
-    put_hex(r->pe_cfg0);
-    console_putln("");
-    console_puts("PE CFG1                      ");
-    put_hex(r->pe_cfg1);
-    console_putln("");
-    console_puts("PE DATA                      ");
-    put_hex(r->pe_data);
-    console_putln("");
+    console_puts("MODE       "); put_hex(r->mode_byte); console_putln("");
+    console_puts("MAGIC      "); console_putln(magic_valid ? "VALID" : "INVALID");
+    console_puts("0A PRE     "); put_hex(r->raw0a); console_putln("");
+    console_puts("0A POST    "); put_hex(r->prepared0a); console_putln("");
+    console_puts("READY      "); console_putln(r->ready ? "YES" : "NO");
+    console_puts("POLLS      "); put_hex(r->polls); console_putln("");
+    console_puts("PE CFG0    "); put_hex(r->pe_cfg0); console_putln("");
+    console_puts("PE CFG1    "); put_hex(r->pe_cfg1); console_putln("");
+    console_puts("PE DATA    "); put_hex(r->pe_data); console_putln("");
     console_putln("");
     console_putln("CHECKPOINT BEFORE WIN_OPEN");
-    console_putln("POWER CYCLE TO EXIT");
     console_present();
 }
