@@ -99,7 +99,7 @@ void dposlab_fpga_return_monitor(void)
 int main(const dposlab_handoff_t *handoff)
 {
     display_init(); console_init(WHITE,BLACK,2U); console_clear();
-    console_putln("DPOSLAB PRIMITIVE BISECT");
+    console_putln("DPOSLAB STOCK MAIN PRE-WINOPENA");
     console_putln("STEP                         RESULT / VALUE");
     console_putln("-------------------------------------------");
     console_puts("HANDOFF PTR                  ");
@@ -203,12 +203,12 @@ int main(const dposlab_handoff_t *handoff)
     marker = 0x4C414210U;
     dposlab_trace_reset();
 
-    console_putln("INSTALL MINIMAL MAIN HOOK  RUNNING");
+    console_putln("INSTALL CHECKPOINT HOOK    RUNNING");
     console_present();
 
     if (!dposlab_install_minimal_stock_fpga_hook()) {
         marker = 0x4C4142FFU;
-        console_putln("INSTALL MINIMAL MAIN HOOK  FAIL");
+        console_putln("INSTALL CHECKPOINT HOOK    FAIL");
         console_present();
 
         for (;;)
@@ -216,13 +216,13 @@ int main(const dposlab_handoff_t *handoff)
     }
 
     marker = 0x4C414211U;
-    console_putln("INSTALL MINIMAL MAIN HOOK  PASS");
+    console_putln("INSTALL CHECKPOINT HOOK    PASS");
 
     console_puts("STAGE2 SP                   ");
     put_hex(handoff->stage2_sp);
     console_putln("");
 
-    console_putln("JUMP TO PRIMITIVE BISECT    NOW");
+    console_putln("JUMP TO STOCK PRE-WINOPEN    NOW");
     console_present();
 
     stock_jump_exe2(handoff->stage2_sp);

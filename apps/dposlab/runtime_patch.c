@@ -651,19 +651,42 @@ int dposlab_install_fpga_hook(void)
  *
  * No application init and no internal FPGA/CSI/SMEC hooks are installed.
  */
-#define STOCK_MINIMAL_MAIN_SITE       0x40034710U
-#define STOCK_MINIMAL_MAIN_ORIGINAL   0xEB003984U /* bl System_Init */
+#define STOCK_MINIMAL_MAIN_SITE       0x40034774U
+#define STOCK_MINIMAL_MAIN_ORIGINAL   0xEB0023CCU /* bl Win_OpenMainBank */
+
+#define ARM_NOP                         0xE1A00000U
+#define STOCK_GUI_INIT_SITE             0x4003473CU
+#define STOCK_GUI_INIT_ORIGINAL         0xEBFFFF67U
+#define STOCK_GT911_INIT_SITE           0x40034740U
+#define STOCK_GT911_INIT_ORIGINAL       0xEB0054CBU
+#define STOCK_WIN_INIT_SITE             0x40034744U
+#define STOCK_WIN_INIT_ORIGINAL         0xEB002342U
+#define STOCK_UI_COLOR_INIT_SITE        0x40034748U
+#define STOCK_UI_COLOR_INIT_ORIGINAL    0xEBFF94E9U
+#define STOCK_FATFS_INIT_SITE           0x4003474CU
+#define STOCK_FATFS_INIT_ORIGINAL       0xEB00550BU
+
 
 extern void dposlab_minimal_stock_fpga_hook(void);
 
 int dposlab_install_minimal_stock_fpga_hook(void)
 {
+    volatile uint32_t *gui_site;
+    volatile uint32_t *gt911_site;
+    volatile uint32_t *win_site;
+    volatile uint32_t *ui_color_site;
+    volatile uint32_t *fatfs_site;
     volatile uint32_t *site;
     volatile uint32_t *veneer;
     uint32_t hook_address;
     uint32_t branch;
 
     site = word_at(STOCK_MINIMAL_MAIN_SITE);
+    gui_site = word_at(STOCK_GUI_INIT_SITE);
+    gt911_site = word_at(STOCK_GT911_INIT_SITE);
+    win_site = word_at(STOCK_WIN_INIT_SITE);
+    ui_color_site = word_at(STOCK_UI_COLOR_INIT_SITE);
+    fatfs_site = word_at(STOCK_FATFS_INIT_SITE);
     veneer = word_at(DPOSLAB_FPGA_VENEER);
     hook_address =
         (uint32_t)(uintptr_t)dposlab_minimal_stock_fpga_hook;
@@ -671,6 +694,22 @@ int dposlab_install_minimal_stock_fpga_hook(void)
     /* Refuse an incompatible or already-patched EXE2 image. */
     if (*site != STOCK_MINIMAL_MAIN_ORIGINAL)
         return 0;
+    if (*gui_site != STOCK_GUI_INIT_ORIGINAL && *gui_site != ARM_NOP)
+        return 0;
+    if (*gt911_site != STOCK_GT911_INIT_ORIGINAL && *gt911_site != ARM_NOP)
+        return 0;
+    if (*win_site != STOCK_WIN_INIT_ORIGINAL && *win_site != ARM_NOP)
+        return 0;
+    if (*ui_color_site != STOCK_UI_COLOR_INIT_ORIGINAL && *ui_color_site != ARM_NOP)
+        return 0;
+    if (*fatfs_site != STOCK_FATFS_INIT_ORIGINAL && *fatfs_site != ARM_NOP)
+        return 0;
+
+    *gui_site = ARM_NOP;
+    *gt911_site = ARM_NOP;
+    *win_site = ARM_NOP;
+    *ui_color_site = ARM_NOP;
+    *fatfs_site = ARM_NOP;
 
     if (!encode_arm_branch(STOCK_MINIMAL_MAIN_SITE,
                            DPOSLAB_FPGA_VENEER,
@@ -682,6 +721,11 @@ int dposlab_install_minimal_stock_fpga_hook(void)
     *site = branch;
 
     cache_clean_range(DPOSLAB_FPGA_VENEER, 8U);
+    cache_clean_range(STOCK_GUI_INIT_SITE, 4U);
+    cache_clean_range(STOCK_GT911_INIT_SITE, 4U);
+    cache_clean_range(STOCK_WIN_INIT_SITE, 4U);
+    cache_clean_range(STOCK_UI_COLOR_INIT_SITE, 4U);
+    cache_clean_range(STOCK_FATFS_INIT_SITE, 4U);
     cache_clean_range(STOCK_MINIMAL_MAIN_SITE, 4U);
     cache_invalidate_icache_all();
     cache_invalidate_branch_predictor();

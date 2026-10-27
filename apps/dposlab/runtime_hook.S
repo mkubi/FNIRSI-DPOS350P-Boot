@@ -630,6 +630,22 @@ dposlab_smec_poll65_hook:
 
 .equ STOCK_MINIMAL_SYSTEM_INIT_PART2, 0x40042CD8
 .equ STOCK_MINIMAL_FPGA_START,    0x40049188
+.equ STOCK_MINIMAL_FULL_SMEC_INIT, 0x4004A15C
+.equ STOCK_MINIMAL_POWER_INIT,    0x4004A198
+.equ STOCK_MINIMAL_HORIZONTAL_INIT, 0x4003A62C
+.equ STOCK_MINIMAL_VERTICAL_INIT,   0x4004A50C
+.equ STOCK_MINIMAL_HARDCOST_TIME_INIT, 0x4003EF1C
+.equ STOCK_MINIMAL_GEN_INIT,       0x4004D164
+.equ STOCK_MINIMAL_CHECK_UPDATE_SYSTEM, 0x4004F134
+.equ STOCK_MINIMAL_FACTORY_DEFAULT_INIT, 0x4003EFAC
+.equ STOCK_FACTORY_APPLY_HELPER_A, 0x40043EEC
+.equ STOCK_FACTORY_APPLY_HELPER_B, 0x4004435C
+.equ STOCK_FACTORY_APPLY_FINAL,    0x40043A80
+.equ STOCK_APP_STATE_BASE,         0x40544E68
+.equ STOCK_APP_STATE_PROFILE_OFF,  0x000007C0
+.equ STOCK_MINIMAL_FACTORY_CHECK,  0x40051CF0
+.equ STOCK_MINIMAL_SYS_CONFIG_EXEC, 0x4003E708
+.equ STOCK_MINIMAL_INIT_4003D6AC, 0x4003D6AC
 .equ STOCK_MINIMAL_SMEC_PREAMBLE,  0x4004A13C
 .equ STOCK_MINIMAL_TIMING_WRITE,   0x40049FB8
 .equ STOCK_MINIMAL_SMEC_TRANSACTION, 0x4004A0B0
@@ -646,36 +662,18 @@ dposlab_smec_poll65_hook:
 .extern dposlab_custom_smec_result
 .extern dposlab_custom_smec_stock_primitives_test
 
+.extern dposlab_acq_prereq_probe
+.extern dposlab_acq_prereq_monitor
+
+.extern dposlab_acq_variant1_probe
+.extern dposlab_acq_variant1_monitor
 dposlab_minimal_stock_fpga_hook:
-    /* Confirmed stock prerequisite. */
-    ldr     r12, =STOCK_MINIMAL_SYSTEM_INIT_PART2
-    blx     r12
-
-    push    {r0-r12, lr}
-    mrs     r0, cpsr
-    mov     r1, sp
-    bl      dposlab_capture_before
-    ldmia   sp, {r0-r12}
-
-    /* Known-good stock FPGA_Start half of Test A. */
-    ldr     r12, =STOCK_MINIMAL_FPGA_START
-    blx     r12
-
-    push    {r0-r12, lr}
-    mrs     r0, cpsr
-    mov     r1, sp
-    bl      dposlab_capture_after
-    add     sp, sp, #56
-
     /*
-     * Replace only stock SMEC with the current Custom implementation.
-     * No stock SMEC preamble or transaction helper is called here.
+     * Stock main reached the FactoryCheck boundary after executing every
+     * preceding non-GUI stage in authentic order. Snapshot and stop here.
      */
-    ldr     r0, =dposlab_custom_smec_result
-    bl      dposlab_custom_smec_stock_primitives_test
-
-    bl      dposlab_fpga_return_monitor
-
+    bl      dposlab_acq_variant1_probe
+    bl      dposlab_acq_variant1_monitor
 1:
     wfi
     b       1b
