@@ -300,6 +300,16 @@ void fpga_prepare_csi_bank0_position(uint16_t position)
     fpga_settle_delay();
 }
 
+void fpga_select_csi_bank0(void)
+{
+    control_bus_init();
+    fpga_select_command(0x1FU);
+    fpga_settle_delay();
+    fpga_write_payload(0x00U);
+    fpga_settle_delay();
+    fpga_bus_safe_idle();
+}
+
 void fpga_prepare_csi_bank0(void)
 {
     fpga_prepare_csi_bank0_position(0U);
@@ -393,8 +403,8 @@ void fpga_acq_ready_probe(uint8_t mode_byte, uint32_t max_polls,
     fpga_bus_safe_idle();
 }
 
-void fpga_acq_position_probe(uint8_t mode_byte, uint32_t max_polls,
-                             struct fpga_acq_position_result *result)
+void fpga_acq_position_read_after_ready(
+    struct fpga_acq_position_result *result)
 {
     uint8_t high;
     uint8_t low;
@@ -403,13 +413,9 @@ void fpga_acq_position_probe(uint8_t mode_byte, uint32_t max_polls,
     result->position = 0U;
     result->valid = 0;
 
-    fpga_acq_ready_probe(mode_byte, max_polls, &result->ready);
-    if (!result->ready.ready)
-        return;
-
     control_bus_init();
 
-    /* Exact stock 0x40063770 validity read. */
+    /* Exact stock 0x40063770 validity read. No prepare and no 0x0A poll. */
     fpga_select_command(0x18U);
     result->valid_status = fpga_read_byte();
     if ((result->valid_status & 1U) == 0U) {
@@ -424,6 +430,25 @@ void fpga_acq_position_probe(uint8_t mode_byte, uint32_t max_polls,
     result->position = (uint16_t)(((uint16_t)high << 8) | low);
     result->valid = 1;
     fpga_bus_safe_idle();
+}
+
+void fpga_acq_position_probe(uint8_t mode_byte, uint32_t max_polls,
+                             struct fpga_acq_position_result *result)
+{
+    result->ready.ready = 0;
+    result->ready.polls = 0U;
+    result->ready.final_status = 0U;
+    result->ready.mode_byte = mode_byte;
+
+    fpga_acq_ready_probe(mode_byte, max_polls, &result->ready);
+    if (!result->ready.ready) {
+        result->valid_status = 0U;
+        result->position = 0U;
+        result->valid = 0;
+        return;
+    }
+
+    fpga_acq_position_read_after_ready(result);
 }
 
 void fpga_stream_activity_probe(uint32_t samples,

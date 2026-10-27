@@ -1,5 +1,19 @@
 #include <stdint.h>
 #include "acq_prereq_probe.h"
+#include "../../arch/r11/cache.h"
+
+#define STOCK_CAPTURE_BANK0 ((void (*)(uint32_t))(uintptr_t)0x400406C8U)
+#define STOCK_CSI_WAIT_SITE       0x40040680U
+#define STOCK_CSI_WAIT_ORIGINAL   0x0AFFFFFCU
+#define DPOSLAB_CSI_WAIT_VENEER   0x40055B3CU
+#define ARM_LDR_PC_PC_MINUS_4     0xE51FF004U
+#define CSI_MODE_REG              (*(volatile uint32_t *)0x01CB4008U)
+#define CSI_BUFFER0_REG           (*(volatile uint32_t *)0x01CB4050U)
+#define CSI_IRQ_ENABLE_REG        (*(volatile uint32_t *)0x01CB4070U)
+#define CSI_STATUS_REG            (*(volatile uint32_t *)0x01CB4074U)
+#define STOCK_CSI_DONE_FLAG       (*(volatile uint8_t *)0x40545576U)
+#define CSI_DONE_BIT              0x00000002U
+#define CSI_WAIT_LIMIT            24000000U
 #include "../../ui/console.h"
 #include "custom_fpga_start.h"
 #include "smec_matrix.h"
@@ -43,6 +57,64 @@ static uint8_t stock_read_selector(uint8_t selector)
     return STOCK_FPGA_READ_BYTE();
 }
 
+static uint32_t encode_bl(uint32_t site, uint32_t target)
+{
+    int32_t displacement = (int32_t)(target - (site + 8U));
+    return 0xEB000000U | (((uint32_t)(displacement >> 2)) & 0x00FFFFFFU);
+}
+
+void dposlab_csi_wait_hook(void)
+{
+    struct dposlab_acq_probe_result *r = &dposlab_acq_probe_result;
+    uint32_t i;
+    uint32_t status = CSI_STATUS_REG;
+
+    r->csi_wait_mode = CSI_MODE_REG;
+    r->csi_wait_buffer0 = CSI_BUFFER0_REG;
+    r->csi_wait_irq_enable = CSI_IRQ_ENABLE_REG;
+    r->csi_wait_polls = 0U;
+    r->csi_wait_hw_done = 0U;
+
+    for (i = 0U; i < CSI_WAIT_LIMIT; ++i) {
+        status = CSI_STATUS_REG;
+        r->csi_wait_polls = i + 1U;
+        if ((status & CSI_DONE_BIT) != 0U) {
+            r->csi_wait_hw_done = 1U;
+            STOCK_CSI_DONE_FLAG = 1U;
+            break;
+        }
+    }
+
+    r->csi_wait_status = status;
+}
+
+static int install_csi_wait_hook(void)
+{
+    volatile uint32_t *site = (volatile uint32_t *)(uintptr_t)STOCK_CSI_WAIT_SITE;
+    volatile uint32_t *veneer = (volatile uint32_t *)(uintptr_t)DPOSLAB_CSI_WAIT_VENEER;
+    uint32_t target = (uint32_t)(uintptr_t)dposlab_csi_wait_hook;
+    uint32_t branch;
+
+    if (*site != STOCK_CSI_WAIT_ORIGINAL)
+        return 0;
+
+    veneer[0] = ARM_LDR_PC_PC_MINUS_4;
+    veneer[1] = target;
+    branch = encode_bl(STOCK_CSI_WAIT_SITE, DPOSLAB_CSI_WAIT_VENEER);
+    *site = branch;
+
+    cache_clean_range(DPOSLAB_CSI_WAIT_VENEER, 8U);
+    cache_clean_range(STOCK_CSI_WAIT_SITE, 4U);
+    cache_invalidate_icache_all();
+    cache_invalidate_branch_predictor();
+    cache_dsb();
+    cache_isb();
+
+    return *site == branch &&
+           veneer[0] == ARM_LDR_PC_PC_MINUS_4 &&
+           veneer[1] == target;
+}
+
 void dposlab_acq_variant1_probe(void)
 {
     struct dposlab_acq_probe_result *r = &dposlab_acq_probe_result;
@@ -59,6 +131,15 @@ void dposlab_acq_variant1_probe(void)
     r->prepared0a = 0U;
     r->polls = 0U;
     r->ready = 0U;
+    r->stock_capture_called = 0U;
+    r->stock_capture_returned = 0U;
+    r->csi_wait_hook_installed = 0U;
+    r->csi_wait_polls = 0U;
+    r->csi_wait_status = 0U;
+    r->csi_wait_mode = 0U;
+    r->csi_wait_buffer0 = 0U;
+    r->csi_wait_irq_enable = 0U;
+    r->csi_wait_hw_done = 0U;
 
     STOCK_ACQ_PREPARE();
     for (i = 0U; i < 2500U; ++i) {
@@ -74,6 +155,28 @@ void dposlab_acq_variant1_probe(void)
     r->pe_cfg0 = PE_CFG0;
     r->pe_cfg1 = PE_CFG1;
     r->pe_data = PE_DATA;
+    if (r->ready != 0U) {
+        console_init(WHITE, BLACK, 2U);
+        console_clear();
+        console_putln("STOCK CSI BANK0");
+        console_putln("CALL 0x400406C8");
+        console_putln("WAITING...");
+        console_present();
+
+        r->csi_wait_hook_installed = install_csi_wait_hook() ? 1U : 0U;
+        if (r->csi_wait_hook_installed == 0U) {
+            console_putln("WAIT HOOK INSTALL FAIL");
+            console_present();
+            return;
+        }
+
+        r->stock_capture_called = 1U;
+        STOCK_CAPTURE_BANK0(0U);
+        r->stock_capture_returned = 1U;
+
+        console_putln("STOCK CAPTURE RETURNED");
+        console_present();
+    }
 }
 
 void dposlab_acq_variant1_monitor(void)
@@ -84,31 +187,23 @@ void dposlab_acq_variant1_monitor(void)
 
     console_init(WHITE, BLACK, 2U);
     console_clear();
-    console_putln("ACCUMULATED CUSTOM FPGA+SMEC");
-    console_putln("-------------------------");
-    console_puts("S1 STATE     "); console_putln(dposlab_smec_impl_name(s->s1));
-    console_puts("S2 LOCAL     "); console_putln(dposlab_smec_impl_name(s->s2));
-    console_puts("S3 PREAMBLE  "); console_putln(dposlab_smec_impl_name(s->s3));
-    console_puts("S4 JOBS      "); console_putln(dposlab_smec_impl_name(s->s4));
-    console_putln("");
+    console_putln("MINI STOCK + STOCK CSI BANK0");
+    console_putln("--------------------------");
     console_puts("SMEC PASS    "); console_putln(s->success ? "YES" : "NO");
     console_puts("JOBS DONE    "); put_hex(s->custom.completed_jobs); console_putln("");
-    console_puts("CURRENT JOB  "); put_hex(s->custom.current_job); console_putln("");
-    console_puts("ATTEMPTS     "); put_hex(s->custom.attempts); console_putln("");
-    console_puts("POLL64       "); put_hex(s->custom.poll64_count); console_putln("");
-    console_puts("POLL65       "); put_hex(s->custom.poll65_count); console_putln("");
-    console_puts("RESULT66     "); put_hex(s->custom.result66); console_putln("");
-    console_puts("ECHO/STATUS  "); put_hex(((uint32_t)s->custom.echo68 << 8) | s->custom.status67); console_putln("");
-    console_puts("ERROR        "); put_hex((uint32_t)s->custom.error); console_putln("");
-    console_puts("STATE HASH   "); put_hex(s->state_checksum); console_putln("");
-    console_puts("STATE NZ     "); put_hex(s->state_nonzero); console_putln("");
-    console_putln("");
     console_puts("0A PRE       "); put_hex(a->raw0a); console_putln("");
     console_puts("0A POST      "); put_hex(a->prepared0a); console_putln("");
-    console_puts("READY        "); console_putln(a->ready ? "YES" : "NO");
-    console_puts("POLLS        "); put_hex(a->polls); console_putln("");
-    console_puts("PE CFG0      "); put_hex(a->pe_cfg0); console_putln("");
-    console_puts("PE CFG1      "); put_hex(a->pe_cfg1); console_putln("");
-    console_puts("PE DATA      "); put_hex(a->pe_data); console_putln("");
+    console_puts("ACQ READY    "); console_putln(a->ready ? "YES" : "NO");
+    console_puts("0A POLLS     "); put_hex(a->polls); console_putln("");
+    console_putln("");
+    console_puts("STOCK CALLED "); console_putln(a->stock_capture_called ? "YES" : "NO");
+    console_puts("STOCK RETURN "); console_putln(a->stock_capture_returned ? "YES" : "NO");
+    console_puts("WAIT HOOK    "); console_putln(a->csi_wait_hook_installed ? "YES" : "NO");
+    console_puts("HW DONE      "); console_putln(a->csi_wait_hw_done ? "YES" : "NO");
+    console_puts("WAIT POLLS   "); put_hex(a->csi_wait_polls); console_putln("");
+    console_puts("CSI STATUS   "); put_hex(a->csi_wait_status); console_putln("");
+    console_puts("CSI MODE     "); put_hex(a->csi_wait_mode); console_putln("");
+    console_puts("CSI BUF0     "); put_hex(a->csi_wait_buffer0); console_putln("");
+    console_puts("CSI IRQ EN   "); put_hex(a->csi_wait_irq_enable); console_putln("");
     console_present();
 }

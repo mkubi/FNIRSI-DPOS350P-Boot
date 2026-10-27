@@ -49,6 +49,8 @@ void fpga_select_bank0(void);
 /* Stock per-bank CSI setup: cyclic position 0 through 0x20/0x21, then 0x1F. */
 void fpga_prepare_csi_bank0(void);
 void fpga_prepare_csi_bank0_position(uint16_t position);
+/* Exact stock per-bank selector: FPGA register 0x1F <- bank 0. */
+void fpga_select_csi_bank0(void);
 void fpga_set_stream_quantity(uint16_t quantity);
 /* Shared PE interface lifecycle around one CSI capture. */
 void fpga_bus_enter_csi_mode(void);
@@ -86,6 +88,10 @@ struct fpga_acq_position_result {
 /* Upstream preparation plus stock 0x18/0x14 position read, still no CSI. */
 void fpga_acq_position_probe(uint8_t mode_byte, uint32_t max_polls,
                              struct fpga_acq_position_result *result);
+/* Read only stock 0x18 validity and 0x14 position.
+ * Does not run acquisition prepare and does not poll 0x0A. */
+void fpga_acq_position_read_after_ready(
+    struct fpga_acq_position_result *result);
 
 struct fpga_smec_init_result {
     uint32_t completed_jobs;
