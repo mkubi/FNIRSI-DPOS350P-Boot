@@ -4,6 +4,7 @@
 #define PE_CFG0        (*(volatile uint32_t *)(PIO_BASE + 0x90u))
 #define PE_CFG1        (*(volatile uint32_t *)(PIO_BASE + 0x94u))
 #define PE_DATA        (*(volatile uint32_t *)(PIO_BASE + 0xA0u))
+#define FPGA_BUS_DIRECTION_STATE     (*(volatile uint8_t *)0x42E68D18U)
 
 #define FPGA_MAGIC     0xA5A55A5Au
 #define PE_CTRL_MASK   0x0000000Fu
@@ -28,15 +29,23 @@ static inline void pe_clear(unsigned pin)
 
 static void data_bus_input(void)
 {
-    /* PE8..PE15: function 0 = GPIO input. */
-    PE_CFG1 = 0x00000000u;
+    /*
+     * Exact stock direction bookkeeping:
+     * state 0 means PE8..PE15 are GPIO inputs.
+     */
+    FPGA_BUS_DIRECTION_STATE = 0U;
+    PE_CFG1 = 0x00000000U;
     barrier();
 }
 
 static void data_bus_output(void)
 {
-    /* PE8..PE15: function 1 = GPIO output. */
-    PE_CFG1 = 0x11111111u;
+    /*
+     * Exact stock 0x400490F4 direction bookkeeping:
+     * state 1 means PE8..PE15 are GPIO outputs.
+     */
+    FPGA_BUS_DIRECTION_STATE = 1U;
+    PE_CFG1 = 0x11111111U;
     barrier();
 }
 
@@ -81,24 +90,40 @@ static void fpga_select_command(uint8_t value)
 {
     data_bus_output();
 
-    /* Exact EXE2 0x4004927C primitive: PE2=0, PE3=0, data, PE0 1->0. */
-    pe_clear(2);
-    pe_clear(3);
+    /*
+     * Exact stock EXE2 0x4004927C selector primitive:
+     *   PE2 HIGH
+     *   PE3 HIGH
+     *   PE8..PE15 = selector
+     *   PE0 LOW -> HIGH
+     *
+     * The primitive returns with PE0, PE2 and PE3 HIGH.
+     */
+    pe_set(2);
+    pe_set(3);
     write_data_byte(value);
-    pe_set(0);
     pe_clear(0);
+    pe_set(0);
 }
 
 static void fpga_write_payload(uint8_t value)
 {
     data_bus_output();
 
-    /* Exact EXE2 0x40049214 primitive: PE2=0, PE3=1, data, PE0 1->0. */
-    pe_clear(2);
-    pe_set(3);
+    /*
+     * Exact stock EXE2 0x40049214 payload-write primitive:
+     *   PE2 HIGH
+     *   PE3 LOW
+     *   PE8..PE15 = payload
+     *   PE0 LOW -> HIGH
+     *
+     * The primitive returns with PE0 and PE2 HIGH, PE3 LOW.
+     */
+    pe_set(2);
+    pe_clear(3);
     write_data_byte(value);
-    pe_set(0);
     pe_clear(0);
+    pe_set(0);
 }
 
 static void fpga_settle_delay(void)
@@ -117,12 +142,18 @@ static uint8_t fpga_read_byte(void)
 
     data_bus_input();
 
-    /* EXE2 0x400491B8 path. */
+    /*
+     * Exact stock EXE2 0x400491B8 read primitive:
+     *   PE2 LOW
+     *   PE3 LOW
+     *   PE0 LOW -> HIGH
+     *   sample PE8..PE15 after the rising edge
+     */
     pe_clear(2);
     pe_clear(3);
     pe_clear(0);
-    value = (uint8_t)((PE_DATA >> 8) & 0xFFu);
     pe_set(0);
+    value = (uint8_t)((PE_DATA >> 8) & 0xFFu);
 
     return value;
 }
@@ -131,6 +162,21 @@ void fpga_bus_safe_idle(void)
 {
     data_bus_input();
     control_bus_init();
+}
+
+void fpga_test_custom_select_command(uint8_t selector)
+{
+    fpga_select_command(selector);
+}
+
+void fpga_test_custom_write_payload(uint8_t value)
+{
+    fpga_write_payload(value);
+}
+
+uint8_t fpga_test_custom_read_byte(void)
+{
+    return fpga_read_byte();
 }
 
 void fpga_diag_read_id(struct fpga_diag_result *result)
@@ -605,6 +651,8 @@ static int smec_submit_job(uint8_t index, uint32_t value,
     return 0;
 }
 
+static void control_bus_stock_idle_cleanup(void);
+
 int fpga_smec_init_baseline(struct fpga_smec_init_result *result)
 {
     static const uint32_t values[7] = {
@@ -619,7 +667,7 @@ int fpga_smec_init_baseline(struct fpga_smec_init_result *result)
     for (i = 0U; i < sizeof(*result) / sizeof(*words); ++i)
         words[i] = 0U;
 
-    control_bus_init();
+    control_bus_stock_idle_cleanup();
     fpga_select_command(0x67U);
     fpga_write_payload(0x08U);
 
@@ -685,14 +733,15 @@ static int smec_poll_trace(uint8_t selector, uint32_t limit,
     return 0;
 }
 
-static int smec_trace_one_job(uint8_t index, uint32_t value,
-                              struct fpga_smec_job_trace *trace)
+static int smec_trace_one_job_timing(uint8_t index, uint32_t value,
+                                     uint16_t timing,
+                                     struct fpga_smec_job_trace *trace)
 {
     trace->index = index;
     trace->echo68 = 0U;
     trace->status67 = 0U;
     trace->completed = 0U;
-    trace->timing = 2000U;
+    trace->timing = timing;
     trace->reserved = 0U;
     trace->value = value;
     trace->result66 = 0U;
@@ -735,6 +784,177 @@ static int smec_trace_one_job(uint8_t index, uint32_t value,
     trace->completed = 1U;
     return 1;
 }
+
+static int smec_trace_one_job(uint8_t index, uint32_t value,
+                              struct fpga_smec_job_trace *trace)
+{
+    return smec_trace_one_job_timing(index, value, 2000U, trace);
+}
+
+static int smec_poll_fresh_bit0(
+    uint8_t selector,
+    uint32_t zero_limit,
+    uint32_t ready_limit,
+    uint32_t *saw_zero,
+    uint32_t *zero_polls,
+    uint32_t *ready_polls,
+    uint8_t *final_value)
+{
+    uint32_t i;
+    uint8_t value = 0U;
+
+    *saw_zero = 0U;
+    *zero_polls = 0U;
+    *ready_polls = 0U;
+    *final_value = 0U;
+
+    /* Reject a sticky READY from the preceding transaction. */
+    for (i = 0U; i < zero_limit; ++i) {
+        value = fpga_read_selector_u8(selector);
+        *zero_polls = i + 1U;
+        if ((value & 1U) == 0U) {
+            *saw_zero = 1U;
+            break;
+        }
+    }
+
+    if (*saw_zero == 0U) {
+        *final_value = value;
+        return 0;
+    }
+
+    /* Accept completion only after observing a fresh BUSY -> READY edge. */
+    for (i = 0U; i < ready_limit; ++i) {
+        value = fpga_read_selector_u8(selector);
+        *ready_polls = i + 1U;
+        if ((value & 1U) != 0U) {
+            *final_value = value;
+            return 1;
+        }
+    }
+
+    *final_value = value;
+    return 0;
+}
+
+static int __attribute__((unused)) smec_trace_job2_fresh_handshake(
+    uint32_t value,
+    struct fpga_smec_job_trace *trace,
+    struct fpga_smec_stage24_pe_result *result)
+{
+    uint8_t returned_index;
+    uint8_t valid;
+
+    trace->index = 2U;
+    trace->echo68 = 0U;
+    trace->status67 = 0U;
+    trace->completed = 0U;
+    trace->timing = 2000U;
+    trace->reserved = 0U;
+    trace->value = value;
+    trace->result66 = 0U;
+    trace->error = 0;
+    smec_trace_reset(&trace->poll64);
+    smec_trace_reset(&trace->poll65);
+
+    fpga_write_u16_be(0x69U, trace->timing);
+    fpga_select_command(0x6AU);
+    fpga_write_payload(2U);
+    fpga_write_u32_be(0x6BU, value);
+
+    fpga_select_command(0x68U);
+    fpga_write_payload(1U);
+
+    if (!smec_poll_fresh_bit0(
+            0x64U,
+            SMEC_INVESTIGATE_POLL64,
+            SMEC_INVESTIGATE_POLL64,
+            &result->job2_p64_saw_zero,
+            &result->job2_p64_zero_polls,
+            &result->job2_p64_ready_polls,
+            &trace->poll64.last)) {
+        trace->error = -1;
+        return 0;
+    }
+    trace->poll64.first = 0U;
+    trace->poll64.or_value = trace->poll64.last;
+    trace->poll64.count = result->job2_p64_zero_polls +
+                          result->job2_p64_ready_polls;
+
+    fpga_select_command(0x68U);
+    fpga_write_payload(0U);
+
+    if (!smec_poll_fresh_bit0(
+            0x65U,
+            SMEC_INVESTIGATE_POLL65,
+            SMEC_INVESTIGATE_POLL65,
+            &result->job2_p65_saw_zero,
+            &result->job2_p65_zero_polls,
+            &result->job2_p65_ready_polls,
+            &trace->poll65.last)) {
+        trace->error = -2;
+        return 0;
+    }
+    trace->poll65.first = 0U;
+    trace->poll65.or_value = trace->poll65.last;
+    trace->poll65.count = result->job2_p65_zero_polls +
+                          result->job2_p65_ready_polls;
+
+    returned_index = fpga_read_selector_u8(0x68U);
+    valid = fpga_read_selector_u8(0x67U);
+    trace->echo68 = returned_index;
+    trace->status67 = valid;
+
+    if (returned_index != 2U) {
+        trace->error = -3;
+        return 0;
+    }
+    if ((valid & 1U) == 0U) {
+        trace->error = -4;
+        return 0;
+    }
+
+    trace->result66 = fpga_read_selector_u32_be(0x66U);
+    trace->completed = 1U;
+    return 1;
+}
+
+static int smec_trace_stock_transaction(
+    uint8_t index,
+    uint32_t value,
+    struct fpga_smec_job_trace *trace,
+    uint32_t *attempts,
+    uint32_t *final_timing,
+    uint32_t *final_outer)
+{
+    uint32_t outer;
+    uint32_t timing = 2000U;
+
+    *attempts = 0U;
+    *final_timing = timing;
+    *final_outer = 0U;
+
+    /* Exact retry controller reconstructed from stock EXE2 0x4004A0B0. */
+    for (outer = 0U; outer < 4U; ++outer) {
+        do {
+            *attempts += 1U;
+            *final_timing = timing;
+            *final_outer = outer;
+
+            if (smec_trace_one_job_timing(index, value,
+                                          (uint16_t)timing, trace))
+                return 1;
+
+            timing += 100U;
+        } while (timing <= 3000U);
+
+        /* Stock clamps the per-ID timing to 3000 for the next outer try. */
+        timing = 3000U;
+    }
+
+    return 0;
+}
+
 
 void fpga_smec_investigate_job2(struct fpga_smec_job2_investigation *result)
 {
@@ -882,5 +1102,170 @@ void fpga_smec_stage24_pe_cleanup_test(
     (void)smec_trace_one_job(2U, 64U, &result->job2);
     result->idle64_after_job2 = fpga_read_selector_u8(0x64U);
     result->idle65_after_job2 = fpga_read_selector_u8(0x65U);
+    fpga_bus_safe_idle();
+}
+
+static void __attribute__((unused)) smec_stage29_delay_2s(void)
+{
+    /*
+     * Diagnostic stabilization window only. The exact wall time depends on
+     * the current CPU clock, but the volatile loop prevents optimization and
+     * intentionally provides an approximately two-second pause on this build.
+     */
+    volatile uint32_t outer;
+    volatile uint32_t inner;
+
+    for (outer = 0U; outer < 2000U; ++outer) {
+        for (inner = 0U; inner < 24000U; ++inner)
+            __asm__ volatile ("nop");
+    }
+}
+
+#define STOCK_PART2_CCU_REG  (*(volatile uint32_t *)0x01C20144U)
+#define STOCK_PART2_DIV_REG  (*(volatile uint32_t *)0x01C20C8CU)
+
+static void __attribute__((unused)) platform_system_init_part2(
+    struct fpga_smec_stage24_pe_result *result)
+{
+    uint32_t value;
+
+    result->part2_ccu_before = STOCK_PART2_CCU_REG;
+    result->part2_div_before = STOCK_PART2_DIV_REG;
+
+    /*
+     * Stock 0x40042D54:
+     * set bit 31 at 0x01C20144.
+     */
+    value = STOCK_PART2_CCU_REG;
+    STOCK_PART2_CCU_REG = value | 0x80000000U;
+
+    /*
+     * Stock 0x40042D40:
+     * channel 0 divider = 24000 - 1.
+     */
+    value = STOCK_PART2_DIV_REG;
+    value = (value & 0xFFFF0000U) | 0x00005DBFU;
+    STOCK_PART2_DIV_REG = value;
+
+    /*
+     * Stock 0x40042D4C:
+     * channel 1 divider = 24 - 1.
+     */
+    value = STOCK_PART2_DIV_REG;
+    value = (value & 0x0000FFFFU) | 0x00170000U;
+    STOCK_PART2_DIV_REG = value;
+
+    result->part2_ccu_after = STOCK_PART2_CCU_REG;
+    result->part2_div_after = STOCK_PART2_DIV_REG;
+
+    result->part2_ok =
+        ((result->part2_ccu_after & 0x80000000U) != 0U) &&
+        ((result->part2_div_after & 0x0000FFFFU) ==
+         0x00005DBFU) &&
+        ((result->part2_div_after & 0xFFFF0000U) ==
+         0x00170000U);
+}
+
+void fpga_smec_custom_job12_test(
+    struct fpga_smec_stage24_pe_result *result)
+{
+    uint32_t *words;
+    uint32_t i;
+
+    if (!result)
+        return;
+
+    words = (uint32_t *)(void *)result;
+    for (i = 0U; i < sizeof(*result) / sizeof(*words); ++i)
+        words[i] = 0U;
+
+    /* Exact Custom PE cleanup and Custom FPGA primitives. */
+    result->cfg0_before = PE_CFG0;
+    result->cfg1_before = PE_CFG1;
+    result->pull0_before = PE_PULL0;
+    result->data_before = PE_DATA;
+
+    control_bus_stock_idle_cleanup();
+
+    result->cfg0_after = PE_CFG0;
+    result->cfg1_after = PE_CFG1;
+    result->pull0_after = PE_PULL0;
+    result->data_after = PE_DATA;
+
+    /* Custom reproduction of the confirmed stock SMEC preamble. */
+    fpga_select_command(0x67U);
+    fpga_write_payload(0x08U);
+    fpga_write_u16_be(0x69U, 2000U);
+
+    (void)smec_trace_stock_transaction(
+        1U, 20U, &result->job1,
+        &result->job1_attempts,
+        &result->job1_final_timing,
+        &result->job1_outer_attempt);
+
+    if (result->job1.completed != 0U) {
+        (void)smec_trace_stock_transaction(
+            2U, 64U, &result->job2,
+            &result->job2_attempts,
+            &result->job2_final_timing,
+            &result->job2_outer_attempt);
+    }
+
+    fpga_bus_safe_idle();
+}
+
+void fpga_smec_stage29_verified_job1_test(
+    struct fpga_smec_stage24_pe_result *result)
+{
+    uint32_t *words;
+    uint32_t i;
+
+    if (!result)
+        return;
+
+    words = (uint32_t *)(void *)result;
+    for (i = 0U; i < sizeof(*result) / sizeof(*words); ++i)
+        words[i] = 0U;
+
+    /* A/B control: System_Init Part 2 intentionally skipped. */
+
+    result->cfg0_before = PE_CFG0;
+    result->cfg1_before = PE_CFG1;
+    result->pull0_before = PE_PULL0;
+    result->data_before = PE_DATA;
+
+    control_bus_stock_idle_cleanup();
+
+    result->cfg0_after = PE_CFG0;
+    result->cfg1_after = PE_CFG1;
+    result->pull0_after = PE_PULL0;
+    result->data_after = PE_DATA;
+
+    /* Stock SMEC_Init performs 0x67 <- 0x08 once before startup jobs. */
+    fpga_select_command(0x67U);
+    fpga_write_payload(0x08U);
+
+    /* Stock SMEC_Init @ 0x4004A178..0x4004A17C preloads timing once. */
+    fpga_write_u16_be(0x69U, 2000U);
+
+    (void)smec_trace_stock_transaction(
+        1U, 20U, &result->job1,
+        &result->job1_attempts,
+        &result->job1_final_timing,
+        &result->job1_outer_attempt);
+
+    if (result->job1.completed != 0U) {
+        (void)smec_trace_stock_transaction(
+            2U, 64U, &result->job2,
+            &result->job2_attempts,
+            &result->job2_final_timing,
+            &result->job2_outer_attempt);
+    }
+
+    /* Diagnostics only after the final tested stock transaction. */
+    result->idle64_after_job2 = fpga_read_selector_u8(0x64U);
+    result->idle65_after_job2 = fpga_read_selector_u8(0x65U);
+
+    /* Stage 29 intentionally stops here. No Job 3 and no capture. */
     fpga_bus_safe_idle();
 }

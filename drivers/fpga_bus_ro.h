@@ -17,6 +17,11 @@ struct fpga_diag_result {
 };
 
 void fpga_bus_safe_idle(void);
+
+/* Primitive-bisect wrappers around the exact current Custom PE routines. */
+void fpga_test_custom_select_command(uint8_t selector);
+void fpga_test_custom_write_payload(uint8_t value);
+uint8_t fpga_test_custom_read_byte(void);
 void fpga_diag_read_id(struct fpga_diag_result *result);
 void fpga_diag_read_id_baseline(struct fpga_diag_result *result);
 /* Exact stock 0x400492E4 ID transaction: selector 0x01 and exactly four
@@ -164,11 +169,42 @@ struct fpga_smec_stage24_pe_result {
     uint8_t idle65_after_job1;
     uint8_t idle64_after_job2;
     uint8_t idle65_after_job2;
+    uint8_t job2_echo_first;
+    uint8_t job2_echo_last;
+    uint8_t job2_echo_or;
+    uint8_t job2_echo_changes;
+    uint32_t job2_echo_count;
+    uint32_t job2_echo_matched;
+    uint32_t job1_attempts;
+    uint32_t job1_final_timing;
+    uint32_t job1_outer_attempt;
+    uint32_t job2_attempts;
+    uint32_t job2_final_timing;
+    uint32_t job2_outer_attempt;
+    uint32_t job2_p64_saw_zero;
+    uint32_t job2_p64_zero_polls;
+    uint32_t job2_p64_ready_polls;
+    uint32_t job2_p65_saw_zero;
+    uint32_t job2_p65_zero_polls;
+    uint32_t job2_p65_ready_polls;
+    uint32_t part2_ccu_before;
+    uint32_t part2_ccu_after;
+    uint32_t part2_div_before;
+    uint32_t part2_div_after;
+    uint32_t part2_ok;
+
 };
 
 /* Stage 24: reproduce the exact stock PE control-bus idle baseline, then
  * submit one Job 1 and one Job 2 attempt. No retry, re-arm, CSI or DMA. */
 void fpga_smec_stage24_pe_cleanup_test(
+    struct fpga_smec_stage24_pe_result *result);
+
+void fpga_smec_stage29_verified_job1_test(
+    struct fpga_smec_stage24_pe_result *result);
+
+/* Test A: Custom SMEC transport after a caller-provided stock FPGA_Start. */
+void fpga_smec_custom_job12_test(
     struct fpga_smec_stage24_pe_result *result);
 
 #endif
