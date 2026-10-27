@@ -84,7 +84,7 @@ void dposlab_acq_variant1_monitor(void)
 
     console_init(WHITE, BLACK, 2U);
     console_clear();
-    console_putln("ISOLATED SMEC MATRIX TEST");
+    console_putln("ACCUMULATED CUSTOM FPGA+SMEC");
     console_putln("-------------------------");
     console_puts("S1 STATE     "); console_putln(dposlab_smec_impl_name(s->s1));
     console_puts("S2 LOCAL     "); console_putln(dposlab_smec_impl_name(s->s2));
