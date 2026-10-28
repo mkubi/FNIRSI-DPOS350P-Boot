@@ -22,6 +22,7 @@
 #define CSI_WAIT_LIMIT            24000000U
 #include "../../ui/console.h"
 #include "../../drivers/fpga_bus_ro.h"
+#include "../../drivers/r11_csi.h"
 #include "custom_fpga_start.h"
 #include "smec_matrix.h"
 
@@ -44,6 +45,8 @@
     ((void (*)(uint32_t))(uintptr_t)0x40065FA8U)
 #define STOCK_ACQ_PREPARE \
     ((void (*)(void))(uintptr_t)0x4003FA10U)
+#define STOCK_PREPARE_CYCLIC_POSITION \
+    ((void (*)(void))(uintptr_t)0x4003FAB8U)
 
 struct dposlab_acq_probe_result dposlab_acq_probe_result
     __attribute__((section(".data")));
@@ -87,6 +90,50 @@ static void custom_configure_csi_stream_fixed(void)
     fpga_write_u16_be(0x22U, 0x300EU);
 
     __asm__ volatile ("dmb sy" ::: "memory");
+}
+
+/*
+ * C2: fixed-profile custom replacement for stock 0x400406C8(0).
+ *
+ * Keep only the stock requested-position producer 0x4003FAB8 for this
+ * first capture-wrapper substitution. Bank selection, CSI mode, DMA target,
+ * capture lifecycle, bounded DONE polling and cleanup are custom.
+ */
+static int custom_capture_bank0_fixed(struct dposlab_acq_probe_result *r)
+{
+    uint32_t status_after = 0U;
+
+    STOCK_PREPARE_CYCLIC_POSITION();
+    fpga_select_csi_bank0();
+    fpga_bus_enter_csi_mode();
+
+    r11_csi_set_buffer0((uintptr_t)STOCK_BANK0_ADDRESS);
+    r11_csi_ack(R11_CSI_DONE);
+
+    r->csi_wait_mode = r11_csi_mode();
+    r->csi_wait_buffer0 = r11_csi_buffer0();
+    r->csi_wait_irq_enable = CSI_IRQ_ENABLE_REG;
+    r->csi_wait_status = r11_csi_status();
+    r->csi_wait_polls = 0U;
+    r->csi_wait_hw_done = 0U;
+
+    r11_csi_timer0_gate(0);
+    r11_csi_capture_enable();
+    fpga_capture_gate(1);
+    r->csi_wait_hw_done =
+        r11_csi_wait_done_bounded(CSI_WAIT_LIMIT, &status_after) ? 1U : 0U;
+    fpga_capture_gate(0);
+    r11_csi_timer0_gate(1);
+    r11_csi_ack(R11_CSI_DONE);
+    r11_csi_capture_disable();
+    fpga_bus_leave_csi_mode();
+
+    r->csi_wait_status = status_after;
+    r->csi_wait_mode = r11_csi_mode();
+    r->csi_wait_buffer0 = r11_csi_buffer0();
+    r->csi_wait_irq_enable = CSI_IRQ_ENABLE_REG;
+    r->csi_wait_polls = r->csi_wait_hw_done ? 1U : CSI_WAIT_LIMIT;
+    return r->csi_wait_hw_done != 0U;
 }
 
 static void bank0_fill(uint8_t value)
@@ -188,7 +235,7 @@ void dposlab_csi_wait_hook(void)
     r->csi_wait_status = status;
 }
 
-static int install_csi_wait_hook(void)
+static int __attribute__((unused)) install_csi_wait_hook(void)
 {
     volatile uint32_t *site = (volatile uint32_t *)(uintptr_t)STOCK_CSI_WAIT_SITE;
     volatile uint32_t *veneer = (volatile uint32_t *)(uintptr_t)DPOSLAB_CSI_WAIT_VENEER;
@@ -263,17 +310,12 @@ void dposlab_acq_variant1_probe(void)
     if (r->ready != 0U) {
         console_init(WHITE, BLACK, 2U);
         console_clear();
-        console_putln("STOCK CSI BANK0");
-        console_putln("CALL 0x400406C8");
+        console_putln("CUSTOM CSI BANK0 C2");
+        console_putln("CUSTOM CAPTURE");
         console_putln("WAITING...");
         console_present();
 
-        r->csi_wait_hook_installed = install_csi_wait_hook() ? 1U : 0U;
-        if (r->csi_wait_hook_installed == 0U) {
-            console_putln("WAIT HOOK INSTALL FAIL");
-            console_present();
-            return;
-        }
+        r->csi_wait_hook_installed = 0U;
 
         bank0_fill(STOCK_BANK0_SENTINEL);
         r->bank0_hash_before = bank0_hash();
@@ -285,7 +327,7 @@ void dposlab_acq_variant1_probe(void)
          * M1 single-variable experiment:
          *
          * C1A replaces outer stock 0x400405E0 while preserving the deeper
-         * stock geometry backend 0x40065FA8 and per-bank wrapper 0x400406C8.
+         * stock geometry backend 0x40065FA8; C2 replaces 0x400406C8.
          *
          * Keep every other minimal-acquisition step unchanged and test only
          * whether this missing producer/receiver geometry setup turns the
@@ -308,15 +350,14 @@ void dposlab_acq_variant1_probe(void)
         custom_configure_csi_stream_fixed();
 
         r->stock_capture_called = 1U;
-        STOCK_CAPTURE_BANK0(0U);
-        r->stock_capture_returned = 1U;
+        r->stock_capture_returned = custom_capture_bank0_fixed(r) ? 1U : 0U;
 
         if (cache_dcache_enabled())
             cache_invalidate_range(STOCK_BANK0_ADDRESS, STOCK_BANK0_SIZE);
         cache_dsb();
         bank0_inspect(r);
 
-        console_putln("STOCK CAPTURE RETURNED");
+        console_putln("CUSTOM CAPTURE RETURNED");
         console_present();
     }
 }
