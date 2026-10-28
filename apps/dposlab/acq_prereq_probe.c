@@ -45,8 +45,6 @@
     ((void (*)(uint32_t))(uintptr_t)0x40065FA8U)
 #define STOCK_ACQ_PREPARE \
     ((void (*)(void))(uintptr_t)0x4003FA10U)
-#define STOCK_PREPARE_CYCLIC_POSITION \
-    ((void (*)(void))(uintptr_t)0x4003FAB8U)
 
 struct dposlab_acq_probe_result dposlab_acq_probe_result
     __attribute__((section(".data")));
@@ -103,7 +101,7 @@ static int custom_capture_bank0_fixed(struct dposlab_acq_probe_result *r)
 {
     uint32_t status_after = 0U;
 
-    STOCK_PREPARE_CYCLIC_POSITION();
+    fpga_prepare_csi_bank0_position(0U);
     fpga_select_csi_bank0();
     fpga_bus_enter_csi_mode();
 
