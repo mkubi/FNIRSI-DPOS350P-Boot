@@ -17,6 +17,7 @@ struct fpga_diag_result {
 };
 
 void fpga_bus_safe_idle(void);
+void fpga_bus_control_idle(void);
 
 /*
  * Production low-level FPGA bus API.
@@ -103,24 +104,6 @@ void fpga_acq_position_probe(uint8_t mode_byte, uint32_t max_polls,
 void fpga_acq_position_read_after_ready(
     struct fpga_acq_position_result *result);
 
-struct fpga_smec_init_result {
-    uint32_t completed_jobs;
-    uint32_t attempts;
-    uint32_t poll64_count;
-    uint32_t poll65_count;
-    uint32_t result66;
-    uint16_t timing;
-    uint8_t current_job;
-    uint8_t status64;
-    uint8_t final65;
-    uint8_t echo68;
-    uint8_t status67;
-    int success;
-    int error;
-};
-
-/* HW-confirmed SMEC_Init startup baseline, jobs 1..7, with bounded polling. */
-int fpga_smec_init_baseline(struct fpga_smec_init_result *result);
 
 #define FPGA_SMEC_TRACE_VALUES 16U
 

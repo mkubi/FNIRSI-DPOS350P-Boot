@@ -1,4 +1,5 @@
 #include "fpga_bus.h"
+#include "fpga_smec.h"
 
 #define PIO_BASE       0x01C20800u
 #define PE_CFG0        (*(volatile uint32_t *)(PIO_BASE + 0x90u))
@@ -691,7 +692,7 @@ static int smec_submit_job(uint8_t index, uint32_t value,
     return 0;
 }
 
-static void control_bus_stock_idle_cleanup(void);
+void fpga_bus_control_idle(void);
 
 int fpga_smec_init_baseline(struct fpga_smec_init_result *result)
 {
@@ -707,7 +708,7 @@ int fpga_smec_init_baseline(struct fpga_smec_init_result *result)
     for (i = 0U; i < sizeof(*result) / sizeof(*words); ++i)
         words[i] = 0U;
 
-    control_bus_stock_idle_cleanup();
+    fpga_bus_control_idle();
     fpga_select_command(0x67U);
     fpga_write_payload(0x08U);
 
@@ -1072,7 +1073,7 @@ void fpga_smec_debug_job2_recovery(struct fpga_smec_job2_recovery *result)
 #define PE_CFG0_CONTROL_MASK 0x0000FFFFU
 #define PE_PULL_CONTROL_MASK 0x000000FFU
 
-static void control_bus_stock_idle_cleanup(void)
+void fpga_bus_control_idle(void)
 {
     uint32_t value;
 
@@ -1121,7 +1122,7 @@ void fpga_smec_stage24_pe_cleanup_test(
     result->pull0_before = PE_PULL0;
     result->data_before = PE_DATA;
 
-    control_bus_stock_idle_cleanup();
+    fpga_bus_control_idle();
 
     result->cfg0_after = PE_CFG0;
     result->cfg1_after = PE_CFG1;
@@ -1225,7 +1226,7 @@ void fpga_smec_custom_job12_test(
     result->pull0_before = PE_PULL0;
     result->data_before = PE_DATA;
 
-    control_bus_stock_idle_cleanup();
+    fpga_bus_control_idle();
 
     result->cfg0_after = PE_CFG0;
     result->cfg1_after = PE_CFG1;
@@ -1274,7 +1275,7 @@ void fpga_smec_stage29_verified_job1_test(
     result->pull0_before = PE_PULL0;
     result->data_before = PE_DATA;
 
-    control_bus_stock_idle_cleanup();
+    fpga_bus_control_idle();
 
     result->cfg0_after = PE_CFG0;
     result->cfg1_after = PE_CFG1;

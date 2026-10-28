@@ -82,7 +82,7 @@ static int phase_s4(struct fpga_smec_init_result *r)
     return 1;
 #elif SMEC_S4 == SMEC_IMPL_CUSTOM
     /* Current custom jobs implementation includes its own verified preamble. */
-    return fpga_smec_init_baseline(r);
+    return fpga_smec_init(r);
 #elif SMEC_S4 == SMEC_IMPL_SKIP
     (void)r;
     return 1;

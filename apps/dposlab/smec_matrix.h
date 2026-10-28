@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "../../drivers/fpga_bus.h"
+#include "../../drivers/fpga_smec.h"
 
 #define SMEC_IMPL_STOCK   0
 #define SMEC_IMPL_CUSTOM  1
