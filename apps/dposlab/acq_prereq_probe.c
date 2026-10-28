@@ -20,11 +20,7 @@
 #define WHITE 0xFFFFU
 #define BLACK 0x0000U
 
-#define PE_CFG0 (*(volatile uint32_t *)0x01C20890U)
-#define PE_CFG1 (*(volatile uint32_t *)0x01C20894U)
-#define PE_DATA (*(volatile uint32_t *)0x01C208A0U)
 #define STOCK_ACQ_MODE_BYTE (*(volatile uint8_t *)0x40545A1BU)
-#define FACTORY_MAGIC_BASE ((volatile uint32_t *)0x42E68AE0U)
 
 struct dposlab_acq_probe_result dposlab_acq_probe_result
     __attribute__((section(".data")));
@@ -112,11 +108,6 @@ void dposlab_acq_variant1_probe(void)
     struct dpos_acq_prepare_result prepare;
     struct dpos_acq_capture_result capture;
 
-    r->factory_magic0 = FACTORY_MAGIC_BASE[0];
-    r->factory_magic1 = FACTORY_MAGIC_BASE[1];
-    r->factory_magic2 = FACTORY_MAGIC_BASE[2];
-    r->factory_magic3 = FACTORY_MAGIC_BASE[3];
-    r->mode_byte = STOCK_ACQ_MODE_BYTE;
 
     r->raw0a = 0U;
     r->prepared0a = 0U;
@@ -124,11 +115,9 @@ void dposlab_acq_variant1_probe(void)
     r->ready = 0U;
     r->capture_called = 0U;
     r->capture_succeeded = 0U;
-    r->csi_wait_polls = 0U;
     r->csi_wait_status = 0U;
     r->csi_wait_mode = 0U;
     r->csi_wait_buffer0 = 0U;
-    r->csi_wait_irq_enable = 0U;
     r->csi_wait_hw_done = 0U;
     r->stream_a_640 = 0U;
     r->stream_b_6f2 = 0U;
@@ -142,9 +131,6 @@ void dposlab_acq_variant1_probe(void)
     r->polls = prepare.polls;
     r->ready = prepare.ready ? 1U : 0U;
 
-    r->pe_cfg0 = PE_CFG0;
-    r->pe_cfg1 = PE_CFG1;
-    r->pe_data = PE_DATA;
     if (r->ready != 0U) {
         console_init(WHITE, BLACK, 2U);
         console_clear();
@@ -194,8 +180,6 @@ void dposlab_acq_variant1_probe(void)
         r->csi_wait_status = capture.status_after;
         r->csi_wait_mode = capture.mode;
         r->csi_wait_buffer0 = capture.buffer0;
-        r->csi_wait_irq_enable = capture.irq_enable;
-        r->csi_wait_polls = capture.wait_polls;
         r->csi_wait_hw_done = capture.done ? 1U : 0U;
 
         if (cache_dcache_enabled())
@@ -228,11 +212,9 @@ void dposlab_acq_variant1_monitor(void)
     console_puts("CAPTURE CALL "); console_putln(a->capture_called ? "YES" : "NO");
     console_puts("CAPTURE PASS "); console_putln(a->capture_succeeded ? "YES" : "NO");
     console_puts("HW DONE      "); console_putln(a->csi_wait_hw_done ? "YES" : "NO");
-    console_puts("WAIT POLLS   "); put_hex(a->csi_wait_polls); console_putln("");
     console_puts("CSI STATUS   "); put_hex(a->csi_wait_status); console_putln("");
     console_puts("CSI MODE     "); put_hex(a->csi_wait_mode); console_putln("");
     console_puts("CSI BUF0     "); put_hex(a->csi_wait_buffer0); console_putln("");
-    console_puts("CSI IRQ EN   "); put_hex(a->csi_wait_irq_enable); console_putln("");
     console_putln("");
     console_puts("RAM CHANGED  "); console_putln(a->bank0_changed_bytes ? "YES" : "NO");
     console_puts("CHANGED BYTES"); put_hex(a->bank0_changed_bytes); console_putln("");
