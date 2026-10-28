@@ -39,17 +39,6 @@
 struct dposlab_acq_probe_result dposlab_acq_probe_result
     __attribute__((section(".data")));
 
-static void custom_acq_prepare(uint8_t mode_byte)
-{
-    fpga_protocol_write_u8(0x0FU, 0x00U);
-    fpga_protocol_write_u8(0x01U, 0x01U);
-    fpga_protocol_write_u8(0x01U, 0x00U);
-    fpga_protocol_write_u8(0x11U, 0x00U);
-    fpga_protocol_write_u8(0x11U, 0x01U);
-    fpga_protocol_write_u8(0x02U, mode_byte);
-    fpga_protocol_write_u8(0x0FU, 0x01U);
-    __asm__ volatile ("dmb sy" ::: "memory");
-}
 
 
 
@@ -67,10 +56,6 @@ static void put_hex(uint32_t value)
     console_puts(text);
 }
 
-static uint8_t custom_read_selector(uint8_t selector)
-{
-    return fpga_protocol_read_u8(selector);
-}
 
 /* C3B: fully custom fixed-profile stream/CSI geometry configuration. */
 static void custom_configure_csi_stream_fixed(void)
@@ -79,7 +64,7 @@ static void custom_configure_csi_stream_fixed(void)
     r11_csi_configure_fixed_stream_geometry();
 
     /* Custom FPGA bus: selector 0x22, big-endian quantity 0x300E. */
-    fpga_protocol_write_u16_be(0x22U, 0x300EU);
+    fpga_protocol_stream_set_quantity(0x300EU);
 
     __asm__ volatile ("dmb sy" ::: "memory");
 }
@@ -95,8 +80,8 @@ static int custom_capture_bank0_fixed(struct dposlab_acq_probe_result *r)
 {
     uint32_t status_after = 0U;
 
-    fpga_prepare_csi_bank0_position(0U);
-    fpga_select_csi_bank0();
+    fpga_protocol_capture_prepare_position(0U);
+    fpga_protocol_capture_select_bank(0U);
     fpga_bus_enter_csi_mode();
 
     r11_csi_set_buffer0((uintptr_t)STOCK_BANK0_ADDRESS);
@@ -257,8 +242,7 @@ static int __attribute__((unused)) install_csi_wait_hook(void)
 void dposlab_acq_variant1_probe(void)
 {
     struct dposlab_acq_probe_result *r = &dposlab_acq_probe_result;
-    uint32_t i;
-    uint8_t value = 0U;
+    struct fpga_protocol_ready_result ready;
 
     r->factory_magic0 = FACTORY_MAGIC_BASE[0];
     r->factory_magic1 = FACTORY_MAGIC_BASE[1];
@@ -266,7 +250,7 @@ void dposlab_acq_variant1_probe(void)
     r->factory_magic3 = FACTORY_MAGIC_BASE[3];
     r->mode_byte = STOCK_ACQ_MODE_BYTE;
 
-    r->raw0a = custom_read_selector(0x0AU);
+    r->raw0a = 0U;
     r->prepared0a = 0U;
     r->polls = 0U;
     r->ready = 0U;
@@ -285,16 +269,12 @@ void dposlab_acq_variant1_probe(void)
     r->stream_quantity = 0U;
     r->stream_payload_guess = 0U;
 
-    custom_acq_prepare(STOCK_ACQ_MODE_BYTE);
-    for (i = 0U; i < 2500U; ++i) {
-        value = custom_read_selector(0x0AU);
-        r->prepared0a = value;
-        r->polls = i + 1U;
-        if ((value & 1U) != 0U) {
-            r->ready = 1U;
-            break;
-        }
-    }
+    fpga_protocol_acq_prepare(STOCK_ACQ_MODE_BYTE);
+    fpga_protocol_acq_wait_ready(2500U, &ready);
+    r->raw0a = ready.initial_status;
+    r->prepared0a = ready.final_status;
+    r->polls = ready.polls;
+    r->ready = ready.ready ? 1U : 0U;
 
     r->pe_cfg0 = PE_CFG0;
     r->pe_cfg1 = PE_CFG1;
