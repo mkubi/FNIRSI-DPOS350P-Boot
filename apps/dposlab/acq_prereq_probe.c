@@ -9,16 +9,6 @@
 #define STOCK_BANK0_SIZE         0x00002134U
 #define STOCK_BANK0_SENTINEL     0xA5U
 #define STOCK_BANK0_NO_CHANGE    0xFFFFFFFFU
-#define STOCK_CSI_WAIT_SITE       0x40040680U
-#define STOCK_CSI_WAIT_ORIGINAL   0x0AFFFFFCU
-#define DPOSLAB_CSI_WAIT_VENEER   0x40055B3CU
-#define ARM_LDR_PC_PC_MINUS_4     0xE51FF004U
-#define CSI_MODE_REG              (*(volatile uint32_t *)0x01CB4008U)
-#define CSI_BUFFER0_REG           (*(volatile uint32_t *)0x01CB4050U)
-#define CSI_IRQ_ENABLE_REG        (*(volatile uint32_t *)0x01CB4070U)
-#define CSI_STATUS_REG            (*(volatile uint32_t *)0x01CB4074U)
-#define STOCK_CSI_DONE_FLAG       (*(volatile uint8_t *)0x40545576U)
-#define CSI_DONE_BIT              0x00000002U
 #define CSI_WAIT_LIMIT            24000000U
 #include "../../ui/console.h"
 #include "../../drivers/fpga_bus.h"
@@ -116,73 +106,6 @@ static void bank0_inspect(struct dposlab_acq_probe_result *r)
     r->bank0_data3 = bank0_load_u32(12U);
 }
 
-static uint32_t encode_bl(uint32_t site, uint32_t target)
-{
-    int32_t displacement = (int32_t)(target - (site + 8U));
-    return 0xEB000000U | (((uint32_t)(displacement >> 2)) & 0x00FFFFFFU);
-}
-
-void dposlab_csi_wait_hook(void)
-{
-    struct dposlab_acq_probe_result *r = &dposlab_acq_probe_result;
-    uint32_t i;
-    uint32_t status = CSI_STATUS_REG;
-
-    r->csi_wait_mode = CSI_MODE_REG;
-    r->csi_wait_buffer0 = CSI_BUFFER0_REG;
-    r->csi_wait_irq_enable = CSI_IRQ_ENABLE_REG;
-    r->csi_wait_polls = 0U;
-    r->csi_wait_hw_done = 0U;
-    r->bank0_hash_before = 0U;
-    r->bank0_hash_after = 0U;
-    r->bank0_changed_bytes = 0U;
-    r->bank0_first_change = STOCK_BANK0_NO_CHANGE;
-    r->bank0_last_change = STOCK_BANK0_NO_CHANGE;
-    r->bank0_data0 = 0U;
-    r->bank0_data1 = 0U;
-    r->bank0_data2 = 0U;
-    r->bank0_data3 = 0U;
-
-    for (i = 0U; i < CSI_WAIT_LIMIT; ++i) {
-        status = CSI_STATUS_REG;
-        r->csi_wait_polls = i + 1U;
-        if ((status & CSI_DONE_BIT) != 0U) {
-            r->csi_wait_hw_done = 1U;
-            STOCK_CSI_DONE_FLAG = 1U;
-            break;
-        }
-    }
-
-    r->csi_wait_status = status;
-}
-
-static int __attribute__((unused)) install_csi_wait_hook(void)
-{
-    volatile uint32_t *site = (volatile uint32_t *)(uintptr_t)STOCK_CSI_WAIT_SITE;
-    volatile uint32_t *veneer = (volatile uint32_t *)(uintptr_t)DPOSLAB_CSI_WAIT_VENEER;
-    uint32_t target = (uint32_t)(uintptr_t)dposlab_csi_wait_hook;
-    uint32_t branch;
-
-    if (*site != STOCK_CSI_WAIT_ORIGINAL)
-        return 0;
-
-    veneer[0] = ARM_LDR_PC_PC_MINUS_4;
-    veneer[1] = target;
-    branch = encode_bl(STOCK_CSI_WAIT_SITE, DPOSLAB_CSI_WAIT_VENEER);
-    *site = branch;
-
-    cache_clean_range(DPOSLAB_CSI_WAIT_VENEER, 8U);
-    cache_clean_range(STOCK_CSI_WAIT_SITE, 4U);
-    cache_invalidate_icache_all();
-    cache_invalidate_branch_predictor();
-    cache_dsb();
-    cache_isb();
-
-    return *site == branch &&
-           veneer[0] == ARM_LDR_PC_PC_MINUS_4 &&
-           veneer[1] == target;
-}
-
 void dposlab_acq_variant1_probe(void)
 {
     struct dposlab_acq_probe_result *r = &dposlab_acq_probe_result;
@@ -230,8 +153,6 @@ void dposlab_acq_variant1_probe(void)
         console_putln("CUSTOM CAPTURE");
         console_putln("WAITING...");
         console_present();
-
-        r->csi_wait_hook_installed = 0U;
 
         bank0_fill(STOCK_BANK0_SENTINEL);
         r->bank0_hash_before = bank0_hash();
