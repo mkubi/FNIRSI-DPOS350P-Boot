@@ -22,6 +22,7 @@
 #define CSI_WAIT_LIMIT            24000000U
 #include "../../ui/console.h"
 #include "../../drivers/fpga_bus.h"
+#include "../../drivers/fpga_protocol.h"
 #include "../../drivers/r11_csi.h"
 #include "custom_fpga_start.h"
 #include "smec_matrix.h"
@@ -40,36 +41,16 @@ struct dposlab_acq_probe_result dposlab_acq_probe_result
 
 static void custom_acq_prepare(uint8_t mode_byte)
 {
-    fpga_bus_select(0x0FU);
-    fpga_bus_write(0x00U);
-
-    fpga_bus_select(0x01U);
-    fpga_bus_write(0x01U);
-
-    fpga_bus_select(0x01U);
-    fpga_bus_write(0x00U);
-
-    fpga_bus_select(0x11U);
-    fpga_bus_write(0x00U);
-
-    fpga_bus_select(0x11U);
-    fpga_bus_write(0x01U);
-
-    fpga_bus_select(0x02U);
-    fpga_bus_write(mode_byte);
-
-    fpga_bus_select(0x0FU);
-    fpga_bus_write(0x01U);
-
+    fpga_protocol_write_u8(0x0FU, 0x00U);
+    fpga_protocol_write_u8(0x01U, 0x01U);
+    fpga_protocol_write_u8(0x01U, 0x00U);
+    fpga_protocol_write_u8(0x11U, 0x00U);
+    fpga_protocol_write_u8(0x11U, 0x01U);
+    fpga_protocol_write_u8(0x02U, mode_byte);
+    fpga_protocol_write_u8(0x0FU, 0x01U);
     __asm__ volatile ("dmb sy" ::: "memory");
 }
 
-static void fpga_write_u16_be(uint8_t selector, uint16_t value)
-{
-    fpga_bus_select(selector);
-    fpga_bus_write((uint8_t)(value >> 8));
-    fpga_bus_write((uint8_t)value);
-}
 
 
 static void put_hex(uint32_t value)
@@ -88,8 +69,7 @@ static void put_hex(uint32_t value)
 
 static uint8_t custom_read_selector(uint8_t selector)
 {
-    fpga_bus_select(selector);
-    return fpga_bus_read();
+    return fpga_protocol_read_u8(selector);
 }
 
 /* C3B: fully custom fixed-profile stream/CSI geometry configuration. */
@@ -99,7 +79,7 @@ static void custom_configure_csi_stream_fixed(void)
     r11_csi_configure_fixed_stream_geometry();
 
     /* Custom FPGA bus: selector 0x22, big-endian quantity 0x300E. */
-    fpga_write_u16_be(0x22U, 0x300EU);
+    fpga_protocol_write_u16_be(0x22U, 0x300EU);
 
     __asm__ volatile ("dmb sy" ::: "memory");
 }
