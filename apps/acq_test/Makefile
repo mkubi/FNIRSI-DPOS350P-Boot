@@ -22,9 +22,11 @@ SOURCES_C := main.c \
     $(ROOT)/drivers/gpio.c \
     $(ROOT)/drivers/display.c \
     $(ROOT)/drivers/fpga_bus.c \
-    $(ROOT)/drivers/ms5351_stock.c \
+    $(ROOT)/drivers/ms5351.c \
     $(ROOT)/drivers/r11_csi.c \
-    $(ROOT)/drivers/dpos_hw.c \
+    $(ROOT)/drivers/fpga_init.c \
+    $(ROOT)/drivers/fpga_protocol.c \
+    $(ROOT)/drivers/smec.c \
     $(ROOT)/ui/font8x8.c \
     $(ROOT)/ui/console.c
 SOURCES_S := start.S

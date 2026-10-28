@@ -1,7 +1,8 @@
 #include <stdint.h>
 
 #include "display.h"
-#include "dpos_hw.h"
+#include "fpga_init.h"
+#include "smec.h"
 #include "console.h"
 #include "timer.h"
 
@@ -34,8 +35,10 @@ static void put_result(const char *label, int pass)
 
 int main(void)
 {
-    struct dpos_hw_init_result hw;
-    int success;
+    struct fpga_init_result hw;
+    struct smec_init_result smec;
+    int fpga_ok;
+    int smec_ok;
 
     display_init();
     console_init(WHITE, BLACK, 2U);
@@ -44,11 +47,15 @@ int main(void)
 
     console_putln("STANDALONE ACQUISITION TEST");
     console_putln("---------------------------");
-    console_putln("R9B FPGA INITIALIZATION");
+    console_putln("R9C1 STANDALONE SMEC");
     console_putln("");
     console_present();
 
-    success = dpos_hw_init(&hw);
+    smec.completed_jobs = 0U;
+    smec.error = 0;
+
+    fpga_ok = fpga_init(&hw);
+    smec_ok = fpga_ok ? smec_init(&smec) : 0;
 
     console_puts("FPGA ID PRE   "); put_hex32(hw.fpga_id_before); console_putln("");
     put_result("FPGA PRE      ", hw.fpga_before);
@@ -62,9 +69,13 @@ int main(void)
     console_puts("FPGA ID POST  "); put_hex32(hw.fpga_id_after); console_putln("");
     put_result("FPGA POST     ", hw.fpga_after);
     console_putln("");
-    put_result("FPGA INIT     ", success);
+    put_result("FPGA INIT     ", fpga_ok);
     console_putln("");
-    console_putln("NO SMEC / NO ACQUISITION");
+    put_result("SMEC PASS     ", smec_ok);
+    console_puts("JOBS DONE     "); put_hex32(smec.completed_jobs); console_putln("");
+    console_puts("SMEC ERROR    "); put_hex32((uint32_t)smec.error); console_putln("");
+    console_putln("");
+    console_putln("NO PROFILE / NO ACQUISITION");
     console_putln("POWER CYCLE TO EXIT");
     console_present();
 
