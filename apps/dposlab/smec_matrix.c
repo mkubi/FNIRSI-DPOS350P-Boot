@@ -76,6 +76,7 @@ static void phase_s3(void)
 
 static int phase_s4(struct fpga_smec_init_result *r)
 {
+    (void)r;
 #if SMEC_S4 == SMEC_IMPL_STOCK || SMEC_S4 == SMEC_IMPL_EXACT
     STOCK_S4_JOBS();
     return 1;

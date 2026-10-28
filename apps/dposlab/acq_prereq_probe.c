@@ -3,6 +3,10 @@
 #include "../../arch/r11/cache.h"
 
 #define STOCK_CAPTURE_BANK0 ((void (*)(uint32_t))(uintptr_t)0x400406C8U)
+#define STOCK_BANK0_ADDRESS      0x42DF76D4U
+#define STOCK_BANK0_SIZE         0x00002134U
+#define STOCK_BANK0_SENTINEL     0xA5U
+#define STOCK_BANK0_NO_CHANGE    0xFFFFFFFFU
 #define STOCK_CSI_WAIT_SITE       0x40040680U
 #define STOCK_CSI_WAIT_ORIGINAL   0x0AFFFFFCU
 #define DPOSLAB_CSI_WAIT_VENEER   0x40055B3CU
@@ -57,6 +61,65 @@ static uint8_t stock_read_selector(uint8_t selector)
     return STOCK_FPGA_READ_BYTE();
 }
 
+static void bank0_fill(uint8_t value)
+{
+    volatile uint8_t *p = (volatile uint8_t *)(uintptr_t)STOCK_BANK0_ADDRESS;
+    uint32_t i;
+
+    for (i = 0U; i < STOCK_BANK0_SIZE; ++i)
+        p[i] = value;
+}
+
+static uint32_t bank0_hash(void)
+{
+    volatile const uint8_t *p =
+        (volatile const uint8_t *)(uintptr_t)STOCK_BANK0_ADDRESS;
+    uint32_t hash = 2166136261U;
+    uint32_t i;
+
+    for (i = 0U; i < STOCK_BANK0_SIZE; ++i)
+        hash = (hash ^ p[i]) * 16777619U;
+
+    return hash;
+}
+
+static uint32_t bank0_load_u32(uint32_t offset)
+{
+    volatile const uint8_t *p =
+        (volatile const uint8_t *)(uintptr_t)(STOCK_BANK0_ADDRESS + offset);
+
+    return (uint32_t)p[0] |
+           ((uint32_t)p[1] << 8) |
+           ((uint32_t)p[2] << 16) |
+           ((uint32_t)p[3] << 24);
+}
+
+static void bank0_inspect(struct dposlab_acq_probe_result *r)
+{
+    volatile const uint8_t *p =
+        (volatile const uint8_t *)(uintptr_t)STOCK_BANK0_ADDRESS;
+    uint32_t i;
+
+    r->bank0_changed_bytes = 0U;
+    r->bank0_first_change = STOCK_BANK0_NO_CHANGE;
+    r->bank0_last_change = STOCK_BANK0_NO_CHANGE;
+
+    for (i = 0U; i < STOCK_BANK0_SIZE; ++i) {
+        if (p[i] != STOCK_BANK0_SENTINEL) {
+            if (r->bank0_changed_bytes == 0U)
+                r->bank0_first_change = i;
+            r->bank0_last_change = i;
+            ++r->bank0_changed_bytes;
+        }
+    }
+
+    r->bank0_hash_after = bank0_hash();
+    r->bank0_data0 = bank0_load_u32(0U);
+    r->bank0_data1 = bank0_load_u32(4U);
+    r->bank0_data2 = bank0_load_u32(8U);
+    r->bank0_data3 = bank0_load_u32(12U);
+}
+
 static uint32_t encode_bl(uint32_t site, uint32_t target)
 {
     int32_t displacement = (int32_t)(target - (site + 8U));
@@ -74,6 +137,15 @@ void dposlab_csi_wait_hook(void)
     r->csi_wait_irq_enable = CSI_IRQ_ENABLE_REG;
     r->csi_wait_polls = 0U;
     r->csi_wait_hw_done = 0U;
+    r->bank0_hash_before = 0U;
+    r->bank0_hash_after = 0U;
+    r->bank0_changed_bytes = 0U;
+    r->bank0_first_change = STOCK_BANK0_NO_CHANGE;
+    r->bank0_last_change = STOCK_BANK0_NO_CHANGE;
+    r->bank0_data0 = 0U;
+    r->bank0_data1 = 0U;
+    r->bank0_data2 = 0U;
+    r->bank0_data3 = 0U;
 
     for (i = 0U; i < CSI_WAIT_LIMIT; ++i) {
         status = CSI_STATUS_REG;
@@ -170,9 +242,20 @@ void dposlab_acq_variant1_probe(void)
             return;
         }
 
+        bank0_fill(STOCK_BANK0_SENTINEL);
+        r->bank0_hash_before = bank0_hash();
+        if (cache_dcache_enabled())
+            cache_clean_range(STOCK_BANK0_ADDRESS, STOCK_BANK0_SIZE);
+        cache_dsb();
+
         r->stock_capture_called = 1U;
         STOCK_CAPTURE_BANK0(0U);
         r->stock_capture_returned = 1U;
+
+        if (cache_dcache_enabled())
+            cache_invalidate_range(STOCK_BANK0_ADDRESS, STOCK_BANK0_SIZE);
+        cache_dsb();
+        bank0_inspect(r);
 
         console_putln("STOCK CAPTURE RETURNED");
         console_present();
@@ -205,5 +288,16 @@ void dposlab_acq_variant1_monitor(void)
     console_puts("CSI MODE     "); put_hex(a->csi_wait_mode); console_putln("");
     console_puts("CSI BUF0     "); put_hex(a->csi_wait_buffer0); console_putln("");
     console_puts("CSI IRQ EN   "); put_hex(a->csi_wait_irq_enable); console_putln("");
+    console_putln("");
+    console_puts("RAM CHANGED  "); console_putln(a->bank0_changed_bytes ? "YES" : "NO");
+    console_puts("CHANGED BYTES"); put_hex(a->bank0_changed_bytes); console_putln("");
+    console_puts("FIRST CHANGE "); put_hex(a->bank0_first_change); console_putln("");
+    console_puts("LAST CHANGE  "); put_hex(a->bank0_last_change); console_putln("");
+    console_puts("HASH BEFORE  "); put_hex(a->bank0_hash_before); console_putln("");
+    console_puts("HASH AFTER   "); put_hex(a->bank0_hash_after); console_putln("");
+    console_puts("DATA 00      "); put_hex(a->bank0_data0); console_putln("");
+    console_puts("DATA 04      "); put_hex(a->bank0_data1); console_putln("");
+    console_puts("DATA 08      "); put_hex(a->bank0_data2); console_putln("");
+    console_puts("DATA 0C      "); put_hex(a->bank0_data3); console_putln("");
     console_present();
 }
