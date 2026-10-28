@@ -3,6 +3,7 @@
 #include "../../arch/r11/cache.h"
 
 #define STOCK_CAPTURE_BANK0 ((void (*)(uint32_t))(uintptr_t)0x400406C8U)
+#define STOCK_CONFIGURE_CSI_STREAM ((void (*)(void))(uintptr_t)0x400405E0U)
 #define STOCK_BANK0_ADDRESS      0x42DF76D4U
 #define STOCK_BANK0_SIZE         0x00002134U
 #define STOCK_BANK0_SENTINEL     0xA5U
@@ -247,6 +248,19 @@ void dposlab_acq_variant1_probe(void)
         if (cache_dcache_enabled())
             cache_clean_range(STOCK_BANK0_ADDRESS, STOCK_BANK0_SIZE);
         cache_dsb();
+
+        /*
+         * M1 single-variable experiment:
+         *
+         * The natural stock path calls 0x400405E0 immediately before the
+         * 8-bank wrapper. It derives the CSI capture quantity and writes the
+         * corresponding FPGA stream quantity through command 0x22.
+         *
+         * Keep every other minimal-acquisition step unchanged and test only
+         * whether this missing producer/receiver geometry setup turns the
+         * one-byte transfer into a full payload.
+         */
+        STOCK_CONFIGURE_CSI_STREAM();
 
         r->stock_capture_called = 1U;
         STOCK_CAPTURE_BANK0(0U);
