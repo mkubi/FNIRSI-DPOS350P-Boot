@@ -1,6 +1,7 @@
 #include <stdint.h>
 
 #include "sysconfig_group_matrix.h"
+#include "../../drivers/fpga_protocol.h"
 
 typedef void (*stock_void_fn_t)(void);
 
@@ -174,8 +175,6 @@ static void custom_sc1_2(void)
 #endif
 
 #if SYSCFG_SC1_5 == SYSCFG_GROUP_CUSTOM
-#define STOCK_FPGA_SELECT      ((void (*)(uint32_t))(uintptr_t)0x4004927CU)
-#define STOCK_FPGA_WRITE_BYTE  ((void (*)(uint32_t))(uintptr_t)0x40049214U)
 #define STOCK_PARAM_WRITE      ((void (*)(uint32_t, uint32_t, uint32_t, uint32_t))(uintptr_t)0x40049EC4U)
 #define STOCK_PARAM_COMMIT     ((void (*)(uint32_t))(uintptr_t)0x40049F1CU)
 #define STOCK_POST_APPLY       ((void (*)(uint32_t))(uintptr_t)0x40042CF0U)
@@ -219,8 +218,7 @@ static void custom_sc1_5_2_write_byte(volatile uint8_t *state,
         shadow_window,
         byte_value);
     STOCK_PARAM_COMMIT(commit);
-    STOCK_FPGA_SELECT(selector);
-    STOCK_FPGA_WRITE_BYTE(byte_value);
+    fpga_protocol_write_u8((uint8_t)selector, (uint8_t)byte_value);
     *changed = 1U;
 }
 
@@ -246,39 +244,26 @@ static void custom_sc1_5_2(void)
     value = state[0x6E7U];
     if (state[0xBB3U] != (uint8_t)value) {
         state[0xBB3U] = (uint8_t)value;
-        STOCK_FPGA_SELECT(0x02U);
-        STOCK_FPGA_WRITE_BYTE(value);
+        fpga_protocol_write_u8(0x02U, (uint8_t)value);
         changed = 1U;
     }
 
     value = *source_word;
     if (*shadow_word != value) {
         *shadow_word = value;
-        STOCK_FPGA_SELECT(0x0DU);
-        STOCK_FPGA_WRITE_BYTE(value >> 24);
-        STOCK_FPGA_WRITE_BYTE(value >> 16);
-        STOCK_FPGA_WRITE_BYTE(value >> 8);
-        STOCK_FPGA_WRITE_BYTE(value);
+        fpga_protocol_write_u32_be(0x0DU, value);
         changed = 1U;
     }
 
     if (changed != 0U) {
-        STOCK_FPGA_SELECT(0x07U);
-        STOCK_FPGA_WRITE_BYTE(1U);
-        STOCK_FPGA_SELECT(0x07U);
-        STOCK_FPGA_WRITE_BYTE(0U);
+        fpga_protocol_write_u8(0x07U, 1U);
+        fpga_protocol_write_u8(0x07U, 0U);
         STOCK_POST_APPLY(2U);
     }
 }
 #endif
 
 #if SYSCFG_SC1_5 == SYSCFG_GROUP_CUSTOM
-#ifndef STOCK_FPGA_SELECT
-#define STOCK_FPGA_SELECT      ((void (*)(uint32_t))(uintptr_t)0x4004927CU)
-#endif
-#ifndef STOCK_FPGA_WRITE_BYTE
-#define STOCK_FPGA_WRITE_BYTE  ((void (*)(uint32_t))(uintptr_t)0x40049214U)
-#endif
 #ifndef STOCK_PARAM_WRITE
 #define STOCK_PARAM_WRITE      ((void (*)(uint32_t, uint32_t, uint32_t, uint32_t))(uintptr_t)0x40049EC4U)
 #endif
@@ -324,15 +309,14 @@ static void custom_sc1_5_4(void)
         STOCK_PARAM_WRITE(0x19U + i, 1U, shadow_window, byte_value);
         STOCK_PARAM_COMMIT(0xB9U + i);
 
-        STOCK_FPGA_SELECT(0xA6U + i);
-        STOCK_FPGA_WRITE_BYTE(byte_value);
+        fpga_protocol_write_u8(
+            (uint8_t)(0xA6U + i),
+            (uint8_t)byte_value);
     }
 
     /* Stock SC1.5.4 always emits the final selector 0x11 pulse. */
-    STOCK_FPGA_SELECT(0x11U);
-    STOCK_FPGA_WRITE_BYTE(0U);
-    STOCK_FPGA_SELECT(0x11U);
-    STOCK_FPGA_WRITE_BYTE(1U);
+    fpga_protocol_write_u8(0x11U, 0U);
+    fpga_protocol_write_u8(0x11U, 1U);
 }
 #endif
 
