@@ -21,6 +21,7 @@
 #define CSI_DONE_BIT              0x00000002U
 #define CSI_WAIT_LIMIT            24000000U
 #include "../../ui/console.h"
+#include "../../drivers/fpga_bus_ro.h"
 #include "custom_fpga_start.h"
 #include "smec_matrix.h"
 
@@ -37,11 +38,24 @@
     ((uint8_t (*)(void))(uintptr_t)0x400491B8U)
 #define STOCK_FPGA_SELECT \
     ((void (*)(uint32_t))(uintptr_t)0x4004927CU)
+#define STOCK_FPGA_WRITE_BYTE \
+    ((void (*)(uint32_t))(uintptr_t)0x40049214U)
+#define STOCK_CSI_GEOMETRY_CONFIG \
+    ((void (*)(uint32_t))(uintptr_t)0x40065FA8U)
 #define STOCK_ACQ_PREPARE \
     ((void (*)(void))(uintptr_t)0x4003FA10U)
 
 struct dposlab_acq_probe_result dposlab_acq_probe_result
     __attribute__((section(".data")));
+
+
+static void fpga_write_u16_be(uint8_t selector, uint16_t value)
+{
+    fpga_test_custom_select_command(selector);
+    fpga_test_custom_write_payload((uint8_t)(value >> 8));
+    fpga_test_custom_write_payload((uint8_t)value);
+}
+
 
 static void put_hex(uint32_t value)
 {
@@ -61,6 +75,18 @@ static uint8_t stock_read_selector(uint8_t selector)
 {
     STOCK_FPGA_SELECT((uint32_t)selector);
     return STOCK_FPGA_READ_BYTE();
+}
+
+/* C1A: fixed-profile replacement for outer stock 0x400405E0. */
+static void custom_configure_csi_stream_fixed(void)
+{
+    /* T6-confirmed receiver geometry. */
+    STOCK_CSI_GEOMETRY_CONFIG(0x1800U);
+
+    /* Custom FPGA bus: selector 0x22, big-endian quantity 0x300E. */
+    fpga_write_u16_be(0x22U, 0x300EU);
+
+    __asm__ volatile ("dmb sy" ::: "memory");
 }
 
 static void bank0_fill(uint8_t value)
@@ -258,9 +284,8 @@ void dposlab_acq_variant1_probe(void)
         /*
          * M1 single-variable experiment:
          *
-         * The natural stock path calls 0x400405E0 immediately before the
-         * 8-bank wrapper. It derives the CSI capture quantity and writes the
-         * corresponding FPGA stream quantity through command 0x22.
+         * C1A replaces outer stock 0x400405E0 while preserving the deeper
+         * stock geometry backend 0x40065FA8 and per-bank wrapper 0x400406C8.
          *
          * Keep every other minimal-acquisition step unchanged and test only
          * whether this missing producer/receiver geometry setup turns the
@@ -280,7 +305,7 @@ void dposlab_acq_variant1_probe(void)
             r->stream_payload_guess = r->stream_quantity >= 14U ?
                 r->stream_quantity - 14U : 0U;
         }
-        STOCK_CONFIGURE_CSI_STREAM();
+        custom_configure_csi_stream_fixed();
 
         r->stock_capture_called = 1U;
         STOCK_CAPTURE_BANK0(0U);
@@ -335,7 +360,7 @@ void dposlab_acq_variant1_monitor(void)
     console_puts("DATA 0C      "); put_hex(a->bank0_data3); console_putln("");
 
 
-    /* Inputs consumed directly by stock 0x400405E0. */
+    /* T6 inputs and derived values used as the C1A oracle. */
     console_set_cursor(31U, 2U); console_puts("STREAM INPUT");
     console_set_cursor(31U, 3U); console_puts("A640  "); put_hex(a->stream_a_640);
     console_set_cursor(31U, 4U); console_puts("B6F2  "); put_hex(a->stream_b_6f2);
