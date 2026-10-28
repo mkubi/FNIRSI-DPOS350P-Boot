@@ -35,13 +35,6 @@
 #define STOCK_ACQ_MODE_BYTE (*(volatile uint8_t *)0x40545A1BU)
 #define FACTORY_MAGIC_BASE ((volatile uint32_t *)0x42E68AE0U)
 
-#define STOCK_FPGA_READ_BYTE \
-    ((uint8_t (*)(void))(uintptr_t)0x400491B8U)
-#define STOCK_FPGA_SELECT \
-    ((void (*)(uint32_t))(uintptr_t)0x4004927CU)
-#define STOCK_FPGA_WRITE_BYTE \
-    ((void (*)(uint32_t))(uintptr_t)0x40049214U)
-
 struct dposlab_acq_probe_result dposlab_acq_probe_result
     __attribute__((section(".data")));
 
@@ -93,10 +86,10 @@ static void put_hex(uint32_t value)
     console_puts(text);
 }
 
-static uint8_t stock_read_selector(uint8_t selector)
+static uint8_t custom_read_selector(uint8_t selector)
 {
-    STOCK_FPGA_SELECT((uint32_t)selector);
-    return STOCK_FPGA_READ_BYTE();
+    fpga_test_custom_select_command(selector);
+    return fpga_test_custom_read_byte();
 }
 
 /* C3B: fully custom fixed-profile stream/CSI geometry configuration. */
@@ -293,7 +286,7 @@ void dposlab_acq_variant1_probe(void)
     r->factory_magic3 = FACTORY_MAGIC_BASE[3];
     r->mode_byte = STOCK_ACQ_MODE_BYTE;
 
-    r->raw0a = stock_read_selector(0x0AU);
+    r->raw0a = custom_read_selector(0x0AU);
     r->prepared0a = 0U;
     r->polls = 0U;
     r->ready = 0U;
@@ -314,7 +307,7 @@ void dposlab_acq_variant1_probe(void)
 
     custom_acq_prepare(STOCK_ACQ_MODE_BYTE);
     for (i = 0U; i < 2500U; ++i) {
-        value = stock_read_selector(0x0AU);
+        value = custom_read_selector(0x0AU);
         r->prepared0a = value;
         r->polls = i + 1U;
         if ((value & 1U) != 0U) {
