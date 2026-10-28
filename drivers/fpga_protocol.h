@@ -18,7 +18,6 @@ uint16_t fpga_protocol_read_u16_be(uint8_t selector);
 uint32_t fpga_protocol_read_u32_be(uint8_t selector);
 
 struct fpga_protocol_ready_result {
-    uint8_t initial_status;
     uint8_t final_status;
     uint32_t polls;
     int ready;

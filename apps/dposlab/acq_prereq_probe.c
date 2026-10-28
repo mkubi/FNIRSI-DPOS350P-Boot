@@ -269,9 +269,10 @@ void dposlab_acq_variant1_probe(void)
     r->stream_quantity = 0U;
     r->stream_payload_guess = 0U;
 
+    /* Preserve the diagnostic boundary: PRE must be sampled before arm. */
+    r->raw0a = fpga_protocol_read_u8(0x0AU);
     fpga_protocol_acq_prepare(STOCK_ACQ_MODE_BYTE);
     fpga_protocol_acq_wait_ready(2500U, &ready);
-    r->raw0a = ready.initial_status;
     r->prepared0a = ready.final_status;
     r->polls = ready.polls;
     r->ready = ready.ready ? 1U : 0U;

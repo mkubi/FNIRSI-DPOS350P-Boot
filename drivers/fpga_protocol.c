@@ -69,8 +69,7 @@ void fpga_protocol_acq_wait_ready(
     uint32_t i;
     uint8_t status;
 
-    result->initial_status = fpga_protocol_read_u8(0x0AU);
-    result->final_status = result->initial_status;
+    result->final_status = 0U;
     result->polls = 0U;
     result->ready = 0;
 
