@@ -40,35 +40,35 @@ struct dposlab_acq_probe_result dposlab_acq_probe_result
 
 static void custom_acq_prepare(uint8_t mode_byte)
 {
-    fpga_test_custom_select_command(0x0FU);
-    fpga_test_custom_write_payload(0x00U);
+    fpga_bus_select(0x0FU);
+    fpga_bus_write(0x00U);
 
-    fpga_test_custom_select_command(0x01U);
-    fpga_test_custom_write_payload(0x01U);
+    fpga_bus_select(0x01U);
+    fpga_bus_write(0x01U);
 
-    fpga_test_custom_select_command(0x01U);
-    fpga_test_custom_write_payload(0x00U);
+    fpga_bus_select(0x01U);
+    fpga_bus_write(0x00U);
 
-    fpga_test_custom_select_command(0x11U);
-    fpga_test_custom_write_payload(0x00U);
+    fpga_bus_select(0x11U);
+    fpga_bus_write(0x00U);
 
-    fpga_test_custom_select_command(0x11U);
-    fpga_test_custom_write_payload(0x01U);
+    fpga_bus_select(0x11U);
+    fpga_bus_write(0x01U);
 
-    fpga_test_custom_select_command(0x02U);
-    fpga_test_custom_write_payload(mode_byte);
+    fpga_bus_select(0x02U);
+    fpga_bus_write(mode_byte);
 
-    fpga_test_custom_select_command(0x0FU);
-    fpga_test_custom_write_payload(0x01U);
+    fpga_bus_select(0x0FU);
+    fpga_bus_write(0x01U);
 
     __asm__ volatile ("dmb sy" ::: "memory");
 }
 
 static void fpga_write_u16_be(uint8_t selector, uint16_t value)
 {
-    fpga_test_custom_select_command(selector);
-    fpga_test_custom_write_payload((uint8_t)(value >> 8));
-    fpga_test_custom_write_payload((uint8_t)value);
+    fpga_bus_select(selector);
+    fpga_bus_write((uint8_t)(value >> 8));
+    fpga_bus_write((uint8_t)value);
 }
 
 
@@ -88,8 +88,8 @@ static void put_hex(uint32_t value)
 
 static uint8_t custom_read_selector(uint8_t selector)
 {
-    fpga_test_custom_select_command(selector);
-    return fpga_test_custom_read_byte();
+    fpga_bus_select(selector);
+    return fpga_bus_read();
 }
 
 /* C3B: fully custom fixed-profile stream/CSI geometry configuration. */

@@ -18,7 +18,17 @@ struct fpga_diag_result {
 
 void fpga_bus_safe_idle(void);
 
-/* Primitive-bisect wrappers around the exact current Custom PE routines. */
+/*
+ * Production low-level FPGA bus API.
+ *
+ * These functions expose only the HW-confirmed physical PE bus operations.
+ * Selector semantics and multi-byte framing belong to the protocol layer.
+ */
+void fpga_bus_select(uint8_t selector);
+void fpga_bus_write(uint8_t value);
+uint8_t fpga_bus_read(void);
+
+/* Temporary compatibility wrappers for existing DPOSLAB diagnostics. */
 void fpga_test_custom_select_command(uint8_t selector);
 void fpga_test_custom_write_payload(uint8_t value);
 uint8_t fpga_test_custom_read_byte(void);

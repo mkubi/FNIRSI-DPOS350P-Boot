@@ -164,19 +164,34 @@ void fpga_bus_safe_idle(void)
     control_bus_init();
 }
 
-void fpga_test_custom_select_command(uint8_t selector)
+void fpga_bus_select(uint8_t selector)
 {
     fpga_select_command(selector);
 }
 
-void fpga_test_custom_write_payload(uint8_t value)
+void fpga_bus_write(uint8_t value)
 {
     fpga_write_payload(value);
 }
 
-uint8_t fpga_test_custom_read_byte(void)
+uint8_t fpga_bus_read(void)
 {
     return fpga_read_byte();
+}
+
+void fpga_test_custom_select_command(uint8_t selector)
+{
+    fpga_bus_select(selector);
+}
+
+void fpga_test_custom_write_payload(uint8_t value)
+{
+    fpga_bus_write(value);
+}
+
+uint8_t fpga_test_custom_read_byte(void)
+{
+    return fpga_bus_read();
 }
 
 void fpga_diag_read_id(struct fpga_diag_result *result)
