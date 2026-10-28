@@ -6,6 +6,39 @@ The project has reached a major milestone: the oscilloscope now boots autonomous
 
 ## Current status
 
+### Custom acquisition baseline
+
+A hardware-confirmed zero-stock custom acquisition baseline is available.
+
+The active prerequisite and acquisition chain after the DPOSLAB checkpoint
+handoff uses custom implementations for FPGA initialization, SMEC,
+horizontal setup, required SysConfig phases, FPGA protocol transactions,
+acquisition preparation and CSI capture.
+
+The confirmed regression capture reaches:
+
+- FPGA status `0x0A`: `0xC0 -> 0xC1`
+- acquisition READY: yes
+- CSI DONE: yes
+- captured payload: `0x1800` bytes
+- changed range: `0x0000..0x17FF`
+
+The production acquisition stack is layered as:
+
+    dpos_acq
+      -> fpga_protocol -> fpga_bus
+      -> r11_csi
+
+    fpga_smec
+      -> fpga_protocol -> fpga_bus
+
+“Zero-stock” refers specifically to the active prerequisite/acquisition
+chain after the DPOSLAB checkpoint handoff. DPOSLAB still contains EXE2
+startup, hook and reverse-engineering infrastructure.
+
+Detailed reverse-engineering notes belong in the FNIRSI-DPOS350P-Hack
+repository.
+
 **Autonomous custom boot from SPI NOR is confirmed working.**
 
 Verified boot chain:

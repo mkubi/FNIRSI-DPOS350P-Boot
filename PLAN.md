@@ -21,6 +21,19 @@ The normal boot path no longer requires FEL/XFEL. FEL remains the recovery and d
 
 ## Known-good baselines
 
+#### Custom acquisition
+
+- hardware-confirmed zero-stock prerequisite/acquisition chain after the
+  DPOSLAB checkpoint handoff
+- production acquisition API: `dpos_acq_prepare()` and `dpos_acq_capture()`
+- FPGA transport split into `fpga_bus`, `fpga_protocol` and `fpga_smec`
+- SoC CSI access remains isolated in `r11_csi`
+- confirmed READY fingerprint: FPGA `0x0A` changes `0xC0 -> 0xC1`
+- confirmed CSI capture: DONE and `0x1800` changed bytes at offsets
+  `0x0000..0x17FF`
+- DPOSLAB remains the hardware regression harness; detailed RE history is
+  maintained separately
+
 ### SPI NOR
 
 - W25Q16JV, 2 MiB, JEDEC `EF 40 15`
@@ -56,6 +69,7 @@ Do not regress the path while experimenting with higher clocks, 4-bit mode, CMD1
 7. SRAM Stage 1 with native clocks and DDR2
 8. verified STG2 container in dedicated NOR slot
 9. BootROM-native eGON.BT0 and autonomous power-on boot
+10. hardware-confirmed zero-stock custom acquisition baseline
 
 ## Current work
 
