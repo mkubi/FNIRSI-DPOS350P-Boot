@@ -22,6 +22,11 @@ struct dposlab_acq_probe_result {
     uint32_t csi_wait_buffer0;
     uint32_t csi_wait_irq_enable;
     uint32_t csi_wait_hw_done;
+    uint32_t stream_a_640;
+    uint32_t stream_b_6f2;
+    uint32_t stream_geometry;
+    uint32_t stream_quantity;
+    uint32_t stream_payload_guess;
     uint32_t bank0_hash_before;
     uint32_t bank0_hash_after;
     uint32_t bank0_changed_bytes;

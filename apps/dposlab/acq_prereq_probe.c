@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include "sysconfig_group_matrix.h"
 #include "acq_prereq_probe.h"
 #include "../../arch/r11/cache.h"
 
@@ -213,6 +214,11 @@ void dposlab_acq_variant1_probe(void)
     r->csi_wait_buffer0 = 0U;
     r->csi_wait_irq_enable = 0U;
     r->csi_wait_hw_done = 0U;
+    r->stream_a_640 = 0U;
+    r->stream_b_6f2 = 0U;
+    r->stream_geometry = 0U;
+    r->stream_quantity = 0U;
+    r->stream_payload_guess = 0U;
 
     STOCK_ACQ_PREPARE();
     for (i = 0U; i < 2500U; ++i) {
@@ -260,6 +266,20 @@ void dposlab_acq_variant1_probe(void)
          * whether this missing producer/receiver geometry setup turns the
          * one-byte transfer into a full payload.
          */
+        {
+            volatile const uint16_t *pa =
+                (volatile const uint16_t *)(uintptr_t)(0x40544E68U + 0x640U);
+            volatile const uint16_t *pb =
+                (volatile const uint16_t *)(uintptr_t)(0x40544E68U + 0x6F2U);
+            uint32_t va = *pa;
+            uint32_t vb = *pb;
+            r->stream_a_640 = va;
+            r->stream_b_6f2 = vb;
+            r->stream_geometry = (va + (vb << 1)) & 0xFFFFU;
+            r->stream_quantity = (20U + ((va + vb) << 1)) & 0xFFFFU;
+            r->stream_payload_guess = r->stream_quantity >= 14U ?
+                r->stream_quantity - 14U : 0U;
+        }
         STOCK_CONFIGURE_CSI_STREAM();
 
         r->stock_capture_called = 1U;
@@ -313,5 +333,14 @@ void dposlab_acq_variant1_monitor(void)
     console_puts("DATA 04      "); put_hex(a->bank0_data1); console_putln("");
     console_puts("DATA 08      "); put_hex(a->bank0_data2); console_putln("");
     console_puts("DATA 0C      "); put_hex(a->bank0_data3); console_putln("");
+
+
+    /* Inputs consumed directly by stock 0x400405E0. */
+    console_set_cursor(31U, 2U); console_puts("STREAM INPUT");
+    console_set_cursor(31U, 3U); console_puts("A640  "); put_hex(a->stream_a_640);
+    console_set_cursor(31U, 4U); console_puts("B6F2  "); put_hex(a->stream_b_6f2);
+    console_set_cursor(31U, 6U); console_puts("GEOM  "); put_hex(a->stream_geometry);
+    console_set_cursor(31U, 7U); console_puts("QTY   "); put_hex(a->stream_quantity);
+    console_set_cursor(31U, 8U); console_puts("PAYLD "); put_hex(a->stream_payload_guess);
     console_present();
 }

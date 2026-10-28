@@ -36,6 +36,7 @@ struct horizontal_h2_word {
     uint32_t value;
 };
 
+#if HORIZONTAL_H2 == HORIZONTAL_IMPL_CUSTOM
 /*
  * Exact word-level reproduction of stock 0x4003A680.
  *
@@ -141,6 +142,7 @@ static void custom_horizontal_h2(void)
 
     __asm__ volatile ("dmb sy" ::: "memory");
 }
+#endif
 
 #if HORIZONTAL_H1 == HORIZONTAL_IMPL_CUSTOM || \
     HORIZONTAL_H3 == HORIZONTAL_IMPL_CUSTOM || \
