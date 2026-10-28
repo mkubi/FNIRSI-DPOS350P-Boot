@@ -502,34 +502,22 @@ static void custom_sc1_5_1(void)
  * No stock call and no fallback. The complete profile is validated before
  * the first APP_STATE write. Unknown profiles fail closed.
  */
-static void custom_sc1_3_t6(void)
+
+
+static void custom_sc1_3(void)
 {
     volatile uint8_t *state8 =
         (volatile uint8_t *)(uintptr_t)0x40544E68U;
-    volatile uint16_t *param_550 =
-        (volatile uint16_t *)(uintptr_t)(0x40544E68U + 0x550U);
     volatile uint32_t *state32 =
         (volatile uint32_t *)(uintptr_t)0x40544E68U;
-    uint32_t source;
-    uint32_t scale;
-
-    source = state32[0x524U / 4U];
-    scale = state32[0x554U / 4U];
-
-    /* Preserve capture observability for the smoke-test screen/debugger. */
-    g_dposlab_sc1_3_capture.magic = DPOSLAB_SC1_3_CAPTURE_MAGIC;
-    g_dposlab_sc1_3_capture.pre_family_1b0 = state8[0x1B0U];
-    g_dposlab_sc1_3_capture.pre_divisor_1b1 = state8[0x1B1U];
-    g_dposlab_sc1_3_capture.pre_index_588 = state8[0x588U];
-    g_dposlab_sc1_3_capture.pre_source_524 = source;
 
     g_dposlab_sc1_3_t1_ran = 1U;
 
     if (state8[0x1B0U] != 1U ||
         state8[0x1B1U] != 8U ||
         state8[0x588U] != 0x17U ||
-        source != 8U ||
-        scale != 0x00002710U) {
+        state32[0x524U / 4U] != 8U ||
+        state32[0x554U / 4U] != 0x00002710U) {
         g_dposlab_sc1_3_profile_error = 1U;
         __asm__ volatile ("dmb sy" ::: "memory");
         return;
@@ -539,69 +527,6 @@ static void custom_sc1_3_t6(void)
 
     state32[0x538U / 4U] = 0x4C1A6700U;
     state32[0x53CU / 4U] = 0x00000037U;
-    *param_550 = 4U;
-    state32[0x558U / 4U] = 50U;
-    state32[0x55CU / 4U] = scale;
-
-    /* T2: stock normalized timing and integer multiplier. */
-    state32[0x530U / 4U] = 0x4C1A6700U;
-    state32[0x534U / 4U] = 0x00000037U;
-    state32[0x560U / 4U] = 1U;
-
-    /* T3: signed position bounds and current zero position/offset. */
-    state32[0x568U / 4U] = 0xFFFFFE25U; /* -475 as int32_t */
-    state32[0x56CU / 4U] = 0x000001DBU; /* +475 */
-    state32[0x570U / 4U] = 0U;
-    state32[0x574U / 4U] = 0U;
-
-    /* T4: final 64-bit timing limits, written as aligned 32-bit words. */
-    state32[0x128U / 4U] = 0x14DC9380U; /* 350000000 */
-    state32[0x12CU / 4U] = 0U;
-    state32[0x068U / 4U] = 0x14DC9380U; /* 350000000 */
-    state32[0x06CU / 4U] = 0U;
-
-    /* T5: preserve stock order and materialize the shared RAM profile table. */
-    //call_stock(0x4004C544U);
-
-    /*
-     * T6: inputs consumed directly by stock 0x400405E0.
-     * Use explicit aligned 16-bit writes; both addresses are halfword-aligned.
-     */
-    *(volatile uint16_t *)(uintptr_t)(0x40544E68U + 0x640U) = 0x17FAU;
-    *(volatile uint16_t *)(uintptr_t)(0x40544E68U + 0x6F2U) = 0x0003U;
-
-    g_dposlab_sc1_3_capture.post_key_lo_538 =
-        state32[0x538U / 4U];
-    g_dposlab_sc1_3_capture.post_key_hi_53c =
-        state32[0x53CU / 4U];
-    g_dposlab_sc1_3_capture.post_param_550 = *param_550;
-    g_dposlab_sc1_3_capture.post_param_558 =
-        state32[0x558U / 4U];
-    g_dposlab_sc1_3_capture.post_530_lo =
-        state32[0x530U / 4U];
-    g_dposlab_sc1_3_capture.post_534_hi =
-        state32[0x534U / 4U];
-    g_dposlab_sc1_3_capture.post_554 = scale;
-    g_dposlab_sc1_3_capture.post_55c =
-        state32[0x55CU / 4U];
-    g_dposlab_sc1_3_capture.post_560 =
-        state32[0x560U / 4U];
-    g_dposlab_sc1_3_capture.post_568_lo =
-        state32[0x568U / 4U];
-    g_dposlab_sc1_3_capture.post_56c_hi =
-        state32[0x56CU / 4U];
-    g_dposlab_sc1_3_capture.post_570_lo =
-        state32[0x570U / 4U];
-    g_dposlab_sc1_3_capture.post_574_hi =
-        state32[0x574U / 4U];
-    g_dposlab_sc1_3_capture.post_128_lo =
-        state32[0x128U / 4U];
-    g_dposlab_sc1_3_capture.post_12c_hi =
-        state32[0x12CU / 4U];
-    g_dposlab_sc1_3_capture.post_068_lo =
-        state32[0x068U / 4U];
-    g_dposlab_sc1_3_capture.post_06c_hi =
-        state32[0x06CU / 4U];
 
     __asm__ volatile ("dmb sy" ::: "memory");
 }
@@ -625,7 +550,7 @@ void __attribute__((noinline)) dposlab_sysconfig_group_dispatch(void)
 #if SYSCFG_SC1_3 == SYSCFG_GROUP_STOCK
     capture_and_call_stock_sc1_3();
 #elif SYSCFG_SC1_3 == SYSCFG_GROUP_CUSTOM
-    custom_sc1_3_t6();
+    custom_sc1_3();
 #endif
 #if SYSCFG_SC1_4 == SYSCFG_GROUP_STOCK
     /* Stock SC1 loads r0/r1 from APP_STATE +0x30 before this call. */
