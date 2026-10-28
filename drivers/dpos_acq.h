@@ -4,6 +4,18 @@
 #include <stdint.h>
 #include <stddef.h>
 
+struct dpos_acq_prepare_result {
+    uint8_t status_before;
+    uint8_t status_after;
+    uint32_t polls;
+    int ready;
+};
+
+int dpos_acq_prepare(
+    uint8_t mode,
+    uint32_t max_polls,
+    struct dpos_acq_prepare_result *result);
+
 struct dpos_acq_capture_result {
     uint32_t status_before;
     uint32_t status_after;

@@ -19,6 +19,30 @@ static void dpos_acq_configure_stream(void)
     __asm__ volatile ("dmb sy" ::: "memory");
 }
 
+int dpos_acq_prepare(
+    uint8_t mode,
+    uint32_t max_polls,
+    struct dpos_acq_prepare_result *result)
+{
+    struct dpos_acq_prepare_result local;
+    struct dpos_acq_prepare_result *out = result ? result : &local;
+    struct fpga_protocol_ready_result ready;
+
+    out->status_before = fpga_protocol_read_u8(0x0AU);
+    out->status_after = 0U;
+    out->polls = 0U;
+    out->ready = 0;
+
+    fpga_protocol_acq_prepare(mode);
+    fpga_protocol_acq_wait_ready(max_polls, &ready);
+
+    out->status_after = ready.final_status;
+    out->polls = ready.polls;
+    out->ready = ready.ready;
+
+    return out->ready;
+}
+
 int dpos_acq_capture(
     uintptr_t buffer,
     uint16_t position,

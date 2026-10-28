@@ -22,7 +22,6 @@
 #define CSI_WAIT_LIMIT            24000000U
 #include "../../ui/console.h"
 #include "../../drivers/fpga_bus.h"
-#include "../../drivers/fpga_protocol.h"
 #include "../../drivers/r11_csi.h"
 #include "../../drivers/dpos_acq.h"
 #include "custom_fpga_start.h"
@@ -187,7 +186,7 @@ static int __attribute__((unused)) install_csi_wait_hook(void)
 void dposlab_acq_variant1_probe(void)
 {
     struct dposlab_acq_probe_result *r = &dposlab_acq_probe_result;
-    struct fpga_protocol_ready_result ready;
+    struct dpos_acq_prepare_result prepare;
     struct dpos_acq_capture_result capture;
 
     r->factory_magic0 = FACTORY_MAGIC_BASE[0];
@@ -215,13 +214,11 @@ void dposlab_acq_variant1_probe(void)
     r->stream_quantity = 0U;
     r->stream_payload_guess = 0U;
 
-    /* Preserve the diagnostic boundary: PRE must be sampled before arm. */
-    r->raw0a = fpga_protocol_read_u8(0x0AU);
-    fpga_protocol_acq_prepare(STOCK_ACQ_MODE_BYTE);
-    fpga_protocol_acq_wait_ready(2500U, &ready);
-    r->prepared0a = ready.final_status;
-    r->polls = ready.polls;
-    r->ready = ready.ready ? 1U : 0U;
+    dpos_acq_prepare(STOCK_ACQ_MODE_BYTE, 2500U, &prepare);
+    r->raw0a = prepare.status_before;
+    r->prepared0a = prepare.status_after;
+    r->polls = prepare.polls;
+    r->ready = prepare.ready ? 1U : 0U;
 
     r->pe_cfg0 = PE_CFG0;
     r->pe_cfg1 = PE_CFG1;
