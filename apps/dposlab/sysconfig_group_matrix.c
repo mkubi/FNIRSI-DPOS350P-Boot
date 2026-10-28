@@ -2,6 +2,7 @@
 
 #include "sysconfig_group_matrix.h"
 #include "../../drivers/fpga_protocol.h"
+#include "../../arch/r11/timer.h"
 
 typedef void (*stock_void_fn_t)(void);
 
@@ -175,8 +176,6 @@ static void custom_sc1_2(void)
 #endif
 
 #if SYSCFG_SC1_5 == SYSCFG_GROUP_CUSTOM
-#define STOCK_POST_APPLY       ((void (*)(uint32_t))(uintptr_t)0x40042CF0U)
-
 static void custom_sc1_5_2_write_byte(volatile uint8_t *state,
                                      uint32_t source_offset,
                                      uint32_t shadow_offset,
@@ -240,7 +239,7 @@ static void custom_sc1_5_2(void)
     if (changed != 0U) {
         fpga_protocol_write_u8(0x07U, 1U);
         fpga_protocol_write_u8(0x07U, 0U);
-        STOCK_POST_APPLY(2U);
+        timer_avs_delay_units(2U);
     }
 }
 #endif

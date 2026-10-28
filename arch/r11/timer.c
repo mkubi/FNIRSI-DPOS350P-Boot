@@ -15,6 +15,10 @@
 #define TIMER_CLOCK_HZ         24000000U
 #define TIMER_TICKS_PER_MS     (TIMER_CLOCK_HZ / 1000U)
 
+#define AVS_CTRL               0x01C20C80U
+#define AVS_COUNTER0           0x01C20C84U
+#define AVS_CTRL_COUNTER0_EN   (1U << 0)
+
 static uint32_t timer_start_ticks;
 
 void timer_init(void)
@@ -79,4 +83,23 @@ void timer_delay_ms(uint32_t milliseconds)
     while (!timer_deadline_reached(deadline)) {
         __asm__ volatile ("nop");
     }
+}
+
+
+void timer_avs_delay_units(uint32_t units)
+{
+    uint32_t control;
+
+    if (units == 0U)
+        return;
+
+    mmio_write32(AVS_COUNTER0, 0U);
+
+    control = mmio_read32(AVS_CTRL);
+    mmio_write32(AVS_CTRL, control | AVS_CTRL_COUNTER0_EN);
+
+    while ((mmio_read32(AVS_COUNTER0) << 1) < units)
+        __asm__ volatile ("nop");
+
+    __asm__ volatile ("dmb sy" ::: "memory");
 }
