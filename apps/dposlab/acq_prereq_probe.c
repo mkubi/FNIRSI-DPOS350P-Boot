@@ -41,12 +41,35 @@
     ((void (*)(uint32_t))(uintptr_t)0x4004927CU)
 #define STOCK_FPGA_WRITE_BYTE \
     ((void (*)(uint32_t))(uintptr_t)0x40049214U)
-#define STOCK_ACQ_PREPARE \
-    ((void (*)(void))(uintptr_t)0x4003FA10U)
 
 struct dposlab_acq_probe_result dposlab_acq_probe_result
     __attribute__((section(".data")));
 
+static void custom_acq_prepare(uint8_t mode_byte)
+{
+    fpga_test_custom_select_command(0x0FU);
+    fpga_test_custom_write_payload(0x00U);
+
+    fpga_test_custom_select_command(0x01U);
+    fpga_test_custom_write_payload(0x01U);
+
+    fpga_test_custom_select_command(0x01U);
+    fpga_test_custom_write_payload(0x00U);
+
+    fpga_test_custom_select_command(0x11U);
+    fpga_test_custom_write_payload(0x00U);
+
+    fpga_test_custom_select_command(0x11U);
+    fpga_test_custom_write_payload(0x01U);
+
+    fpga_test_custom_select_command(0x02U);
+    fpga_test_custom_write_payload(mode_byte);
+
+    fpga_test_custom_select_command(0x0FU);
+    fpga_test_custom_write_payload(0x01U);
+
+    __asm__ volatile ("dmb sy" ::: "memory");
+}
 
 static void fpga_write_u16_be(uint8_t selector, uint16_t value)
 {
@@ -289,7 +312,7 @@ void dposlab_acq_variant1_probe(void)
     r->stream_quantity = 0U;
     r->stream_payload_guess = 0U;
 
-    STOCK_ACQ_PREPARE();
+    custom_acq_prepare(STOCK_ACQ_MODE_BYTE);
     for (i = 0U; i < 2500U; ++i) {
         value = stock_read_selector(0x0AU);
         r->prepared0a = value;
