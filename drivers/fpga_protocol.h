@@ -31,4 +31,24 @@ void fpga_protocol_stream_set_quantity(uint16_t quantity);
 void fpga_protocol_capture_prepare_position(uint16_t position);
 void fpga_protocol_capture_select_bank(uint8_t bank);
 
+struct fpga_protocol_transaction_result {
+    uint32_t result66;
+    uint32_t attempts;
+    uint32_t poll64_count;
+    uint32_t poll65_count;
+    uint16_t timing;
+    uint8_t echo68;
+    uint8_t status64;
+    uint8_t status65;
+    uint8_t status67;
+    int success;
+    int error;
+};
+
+/* Bounded custom replacement for stock transaction engine 0x4004A0B0. */
+int fpga_protocol_parameter_transaction(
+    uint8_t command,
+    uint32_t value,
+    struct fpga_protocol_transaction_result *result);
+
 #endif

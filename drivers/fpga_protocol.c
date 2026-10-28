@@ -100,3 +100,108 @@ void fpga_protocol_capture_select_bank(uint8_t bank)
 {
     fpga_protocol_write_u8(0x1FU, bank);
 }
+
+
+#define FPGA_TRANSACTION_TIMING_TABLE \
+    ((volatile uint32_t *)(uintptr_t)0x42E67558U)
+#define FPGA_TRANSACTION_POLL64_LIMIT 100000U
+#define FPGA_TRANSACTION_POLL65_LIMIT 500000U
+#define FPGA_TRANSACTION_OUTER_ATTEMPTS 4U
+#define FPGA_TRANSACTION_TIMING_MAX 3000U
+#define FPGA_TRANSACTION_TIMING_STEP 100U
+
+static int fpga_protocol_poll_bit0(
+    uint8_t selector,
+    uint32_t limit,
+    uint32_t *count,
+    uint8_t *final)
+{
+    uint32_t i;
+    uint8_t status = 0U;
+
+    for (i = 0U; i < limit; ++i) {
+        status = fpga_protocol_read_u8(selector);
+        if ((status & 1U) != 0U) {
+            *count += i + 1U;
+            *final = status;
+            return 1;
+        }
+    }
+
+    *count += limit;
+    *final = status;
+    return 0;
+}
+
+int fpga_protocol_parameter_transaction(
+    uint8_t command,
+    uint32_t value,
+    struct fpga_protocol_transaction_result *result)
+{
+    volatile uint32_t *timing_table = FPGA_TRANSACTION_TIMING_TABLE;
+    struct fpga_protocol_transaction_result local;
+    struct fpga_protocol_transaction_result *out = result ? result : &local;
+    uint32_t outer;
+    uint32_t i;
+    uint32_t *words = (uint32_t *)(void *)out;
+
+    for (i = 0U; i < sizeof(*out) / sizeof(*words); ++i)
+        words[i] = 0U;
+
+    for (outer = 0U; outer < FPGA_TRANSACTION_OUTER_ATTEMPTS; ++outer) {
+        for (;;) {
+            uint32_t timing = timing_table[command] & 0xFFFFU;
+
+            out->attempts += 1U;
+            out->timing = (uint16_t)timing;
+
+            fpga_protocol_write_u16_be(0x69U, (uint16_t)timing);
+            fpga_protocol_write_u8(0x6AU, command);
+            fpga_protocol_write_u32_be(0x6BU, value);
+            fpga_protocol_write_u8(0x68U, 1U);
+
+            if (!fpga_protocol_poll_bit0(
+                    0x64U,
+                    FPGA_TRANSACTION_POLL64_LIMIT,
+                    &out->poll64_count,
+                    &out->status64)) {
+                out->error = -1;
+            } else {
+                fpga_protocol_write_u8(0x68U, 0U);
+
+                if (!fpga_protocol_poll_bit0(
+                        0x65U,
+                        FPGA_TRANSACTION_POLL65_LIMIT,
+                        &out->poll65_count,
+                        &out->status65)) {
+                    out->error = -2;
+                } else {
+                    out->echo68 = fpga_protocol_read_u8(0x68U);
+                    out->status67 = fpga_protocol_read_u8(0x67U);
+
+                    if (out->echo68 == command &&
+                        (out->status67 & 1U) != 0U) {
+                        out->result66 =
+                            fpga_protocol_read_u32_be(0x66U);
+                        out->success = 1;
+                        out->error = 0;
+                        return 1;
+                    }
+
+                    out->error = out->echo68 != command ? -3 : -4;
+                }
+            }
+
+            timing = timing_table[command] +
+                     FPGA_TRANSACTION_TIMING_STEP;
+            timing_table[command] = timing;
+            if (timing <= FPGA_TRANSACTION_TIMING_MAX)
+                continue;
+
+            timing_table[command] = FPGA_TRANSACTION_TIMING_MAX;
+            break;
+        }
+    }
+
+    return 0;
+}

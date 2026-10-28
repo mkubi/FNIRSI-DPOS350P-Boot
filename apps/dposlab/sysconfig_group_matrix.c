@@ -175,8 +175,6 @@ static void custom_sc1_2(void)
 #endif
 
 #if SYSCFG_SC1_5 == SYSCFG_GROUP_CUSTOM
-#define STOCK_PARAM_WRITE      ((void (*)(uint32_t, uint32_t, uint32_t, uint32_t))(uintptr_t)0x40049EC4U)
-#define STOCK_PARAM_COMMIT     ((void (*)(uint32_t))(uintptr_t)0x40049F1CU)
 #define STOCK_POST_APPLY       ((void (*)(uint32_t))(uintptr_t)0x40042CF0U)
 
 static void custom_sc1_5_2_write_byte(volatile uint8_t *state,
@@ -188,36 +186,20 @@ static void custom_sc1_5_2_write_byte(volatile uint8_t *state,
                                      uint32_t *changed)
 {
     uint32_t byte_value = state[source_offset];
-    uint32_t shadow_window;
 
     if (state[shadow_offset] == (uint8_t)byte_value)
         return;
 
     state[shadow_offset] = (uint8_t)byte_value;
 
-    /*
-     * Stock call ABI for 0x40049EC4:
-     *
-     *   r0 = parameter
-     *   r1 = 1
-     *   r2 = 32-bit shadow window
-     *   r3 = source byte
-     *
-     * Because r1 is below 4, 0x40049EC4 selects r3 as the
-     * effective value. Preserve r2 as well for exact ABI parity.
-     */
-    shadow_window =
-        ((uint32_t)state[shadow_offset + 0U]      ) |
-        ((uint32_t)state[shadow_offset + 1U] <<  8) |
-        ((uint32_t)state[shadow_offset + 2U] << 16) |
-        ((uint32_t)state[shadow_offset + 3U] << 24);
-
-    STOCK_PARAM_WRITE(
-        parameter,
-        1U,
-        shadow_window,
-        byte_value);
-    STOCK_PARAM_COMMIT(commit);
+    fpga_protocol_parameter_transaction(
+        (uint8_t)parameter,
+        byte_value,
+        0);
+    fpga_protocol_parameter_transaction(
+        (uint8_t)commit,
+        0U,
+        0);
     fpga_protocol_write_u8((uint8_t)selector, (uint8_t)byte_value);
     *changed = 1U;
 }
@@ -264,22 +246,6 @@ static void custom_sc1_5_2(void)
 #endif
 
 #if SYSCFG_SC1_5 == SYSCFG_GROUP_CUSTOM
-#ifndef STOCK_PARAM_WRITE
-#define STOCK_PARAM_WRITE      ((void (*)(uint32_t, uint32_t, uint32_t, uint32_t))(uintptr_t)0x40049EC4U)
-#endif
-#ifndef STOCK_PARAM_COMMIT
-#define STOCK_PARAM_COMMIT     ((void (*)(uint32_t))(uintptr_t)0x40049F1CU)
-#endif
-
-static uint32_t custom_load_u32_le(const volatile uint8_t *p)
-{
-    return
-        ((uint32_t)p[0]      ) |
-        ((uint32_t)p[1] <<  8) |
-        ((uint32_t)p[2] << 16) |
-        ((uint32_t)p[3] << 24);
-}
-
 /* Exact stock-like replacement of SC1.5.4 @ 0x40063CD0. */
 static void custom_sc1_5_4(void)
 {
@@ -291,23 +257,20 @@ static void custom_sc1_5_4(void)
         uint32_t source_offset = 0x674U + i;
         uint32_t shadow_offset = 0xBB8U + i;
         uint32_t byte_value = state[source_offset];
-        uint32_t shadow_window;
 
         if (state[shadow_offset] == (uint8_t)byte_value)
             continue;
 
         state[shadow_offset] = (uint8_t)byte_value;
 
-        /*
-         * Preserve the stock call ABI of 0x40049EC4:
-         *   r0 = 0x19 + i
-         *   r1 = 1
-         *   r2 = little-endian u32 window beginning at shadow byte
-         *   r3 = source byte
-         */
-        shadow_window = custom_load_u32_le(&state[shadow_offset]);
-        STOCK_PARAM_WRITE(0x19U + i, 1U, shadow_window, byte_value);
-        STOCK_PARAM_COMMIT(0xB9U + i);
+        fpga_protocol_parameter_transaction(
+            (uint8_t)(0x19U + i),
+            byte_value,
+            0);
+        fpga_protocol_parameter_transaction(
+            (uint8_t)(0xB9U + i),
+            0U,
+            0);
 
         fpga_protocol_write_u8(
             (uint8_t)(0xA6U + i),
