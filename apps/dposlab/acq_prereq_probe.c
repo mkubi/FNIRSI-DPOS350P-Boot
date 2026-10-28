@@ -41,8 +41,6 @@
     ((void (*)(uint32_t))(uintptr_t)0x4004927CU)
 #define STOCK_FPGA_WRITE_BYTE \
     ((void (*)(uint32_t))(uintptr_t)0x40049214U)
-#define STOCK_CSI_GEOMETRY_CONFIG \
-    ((void (*)(uint32_t))(uintptr_t)0x40065FA8U)
 #define STOCK_ACQ_PREPARE \
     ((void (*)(void))(uintptr_t)0x4003FA10U)
 
@@ -78,11 +76,11 @@ static uint8_t stock_read_selector(uint8_t selector)
     return STOCK_FPGA_READ_BYTE();
 }
 
-/* C1A: fixed-profile replacement for outer stock 0x400405E0. */
+/* C3B: fully custom fixed-profile stream/CSI geometry configuration. */
 static void custom_configure_csi_stream_fixed(void)
 {
-    /* T6-confirmed receiver geometry. */
-    STOCK_CSI_GEOMETRY_CONFIG(0x1800U);
+    /* Custom replacement for stock 0x40065FA8(0x1800). */
+    r11_csi_configure_fixed_stream_geometry();
 
     /* Custom FPGA bus: selector 0x22, big-endian quantity 0x300E. */
     fpga_write_u16_be(0x22U, 0x300EU);
@@ -325,7 +323,7 @@ void dposlab_acq_variant1_probe(void)
          * M1 single-variable experiment:
          *
          * C1A replaces outer stock 0x400405E0 while preserving the deeper
-         * stock geometry backend 0x40065FA8; C2 replaces 0x400406C8.
+         * C3B replaces 0x40065FA8; C2/C3A replace the Bank0 capture path.
          *
          * Keep every other minimal-acquisition step unchanged and test only
          * whether this missing producer/receiver geometry setup turns the

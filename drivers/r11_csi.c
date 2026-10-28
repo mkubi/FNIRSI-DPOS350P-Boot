@@ -297,6 +297,25 @@ int r11_csi_stock_parity_init(
            r->mode == 0U;
 }
 
+/*
+ * C3B fixed-profile replacement for stock 0x40065FA8(0x1800).
+ *
+ * These values were captured from the completed stock Bank0 path and are
+ * already used by r11_csi_stock_parity_init(). This focused helper applies
+ * only the receiver geometry/state required before the custom C2/C3A capture.
+ */
+void r11_csi_configure_fixed_stream_geometry(void)
+{
+    mmio_write32(CSI_REG_MODE, 0U);
+    mmio_write32(CSI_REG_IF_CFG, 0x01060400U);
+    mmio_write32(CSI_REG_HSIZE, 0x00000A00U);
+    mmio_write32(CSI_REG_GEO0, 0x18000000U);
+    mmio_write32(CSI_REG_GEO1, 0x00010000U);
+    mmio_write32(CSI_REG_GEO2, 0x2374287CU);
+    mmio_write32(CSI_REG_IRQ_EN, R11_CSI_DONE);
+    cache_dsb();
+}
+
 uint32_t r11_csi_status(void)
 {
     return mmio_read32(CSI_REG_STATUS);
