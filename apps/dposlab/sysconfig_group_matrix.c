@@ -561,7 +561,7 @@ static void custom_sc1_3_t6(void)
     state32[0x06CU / 4U] = 0U;
 
     /* T5: preserve stock order and materialize the shared RAM profile table. */
-    call_stock(0x4004C544U);
+    //call_stock(0x4004C544U);
 
     /*
      * T6: inputs consumed directly by stock 0x400405E0.
