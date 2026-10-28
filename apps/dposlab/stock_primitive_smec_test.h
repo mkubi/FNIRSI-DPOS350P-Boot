@@ -1,7 +1,7 @@
 #ifndef DPOSLAB_STOCK_PRIMITIVE_SMEC_TEST_H
 #define DPOSLAB_STOCK_PRIMITIVE_SMEC_TEST_H
 
-#include "../../drivers/fpga_bus_ro.h"
+#include "../../drivers/fpga_bus.h"
 
 /*
  * Test A1:

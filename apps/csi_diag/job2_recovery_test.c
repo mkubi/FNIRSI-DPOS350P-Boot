@@ -1,4 +1,4 @@
-#include "../../drivers/fpga_bus_ro.h"
+#include "../../drivers/fpga_bus.h"
 
 void diag_ui_init(void);
 void diag_ui_job2_recovery_screen(const struct fpga_diag_result *fpga,

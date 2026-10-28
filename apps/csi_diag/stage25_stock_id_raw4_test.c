@@ -1,4 +1,4 @@
-#include "../../drivers/fpga_bus_ro.h"
+#include "../../drivers/fpga_bus.h"
 
 void diag_ui_init(void);
 void diag_ui_stage25_raw4_screen(

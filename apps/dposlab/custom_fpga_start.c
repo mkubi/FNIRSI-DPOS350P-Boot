@@ -1,7 +1,7 @@
 #include <stdint.h>
 
 #include "custom_fpga_start.h"
-#include "../../drivers/fpga_bus_ro.h"
+#include "../../drivers/fpga_bus.h"
 #include "../../drivers/r11_csi.h"
 #include "../../drivers/ms5351_stock.h"
 

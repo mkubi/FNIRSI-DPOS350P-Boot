@@ -2,7 +2,7 @@
 
 #include "csi_bank0_probe.h"
 #include "../../arch/r11/cache.h"
-#include "../../drivers/fpga_bus_ro.h"
+#include "../../drivers/fpga_bus.h"
 #include "../../drivers/r11_csi.h"
 
 #define STOCK_PREPARE_CYCLIC_POSITION ((void (*)(void))0x4003FAB8U)

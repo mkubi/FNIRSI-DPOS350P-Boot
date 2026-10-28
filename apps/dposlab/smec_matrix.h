@@ -2,7 +2,7 @@
 #define DPOSLAB_SMEC_MATRIX_H
 
 #include <stdint.h>
-#include "../../drivers/fpga_bus_ro.h"
+#include "../../drivers/fpga_bus.h"
 
 #define SMEC_IMPL_STOCK   0
 #define SMEC_IMPL_CUSTOM  1

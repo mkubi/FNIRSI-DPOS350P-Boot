@@ -1,5 +1,5 @@
-#ifndef FPGA_BUS_RO_H
-#define FPGA_BUS_RO_H
+#ifndef FPGA_BUS_H
+#define FPGA_BUS_H
 
 #include <stdint.h>
 

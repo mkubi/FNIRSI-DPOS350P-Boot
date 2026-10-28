@@ -38,7 +38,7 @@ SOURCES_C := \
     $(ROOT)/arch/r11/timer.c \
     $(ROOT)/drivers/gpio.c \
     $(ROOT)/drivers/display.c \
-    $(ROOT)/drivers/fpga_bus_ro.c \
+    $(ROOT)/drivers/fpga_bus.c \
     $(ROOT)/ui/font8x8.c \
     $(ROOT)/ui/console.c
 

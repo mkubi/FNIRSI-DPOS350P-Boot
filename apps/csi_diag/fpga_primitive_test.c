@@ -1,4 +1,4 @@
-#include "../../drivers/fpga_bus_ro.h"
+#include "../../drivers/fpga_bus.h"
 #include "../../drivers/ms5351_stock.h"
 
 void diag_ui_init(void);

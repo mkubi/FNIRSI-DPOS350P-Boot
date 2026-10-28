@@ -1,5 +1,5 @@
 #include <stdint.h>
-#include "../../drivers/fpga_bus_ro.h"
+#include "../../drivers/fpga_bus.h"
 #include "../../drivers/r11_csi.h"
 #include "../../arch/r11/cache.h"
 

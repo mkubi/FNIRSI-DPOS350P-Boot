@@ -1,4 +1,4 @@
-#include "fpga_bus_ro.h"
+#include "fpga_bus.h"
 
 #define PIO_BASE       0x01C20800u
 #define PE_CFG0        (*(volatile uint32_t *)(PIO_BASE + 0x90u))

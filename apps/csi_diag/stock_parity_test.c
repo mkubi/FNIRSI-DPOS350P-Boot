@@ -1,5 +1,5 @@
 #include <stdint.h>
-#include "../../drivers/fpga_bus_ro.h"
+#include "../../drivers/fpga_bus.h"
 #include "../../drivers/r11_csi.h"
 
 #define STOCK_RAW_BANK0 0x42DF76D4U

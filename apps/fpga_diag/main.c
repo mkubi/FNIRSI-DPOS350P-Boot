@@ -1,5 +1,5 @@
 #include <stdint.h>
-#include "../../drivers/fpga_bus_ro.h"
+#include "../../drivers/fpga_bus.h"
 
 /* Adapter functions supplied by ui_adapter.c. */
 void diag_ui_init(void);

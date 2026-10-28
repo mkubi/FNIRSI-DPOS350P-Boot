@@ -21,7 +21,7 @@
 #define CSI_DONE_BIT              0x00000002U
 #define CSI_WAIT_LIMIT            24000000U
 #include "../../ui/console.h"
-#include "../../drivers/fpga_bus_ro.h"
+#include "../../drivers/fpga_bus.h"
 #include "../../drivers/r11_csi.h"
 #include "custom_fpga_start.h"
 #include "smec_matrix.h"

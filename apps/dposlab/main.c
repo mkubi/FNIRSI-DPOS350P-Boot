@@ -6,7 +6,7 @@
 #include "dposlab_abi.h"
 #include "../../drivers/display.h"
 #include "../../ui/console.h"
-#include "../../drivers/fpga_bus_ro.h"
+#include "../../drivers/fpga_bus.h"
 
 #ifndef DPOSLAB_MODE
 #define DPOSLAB_MODE 0

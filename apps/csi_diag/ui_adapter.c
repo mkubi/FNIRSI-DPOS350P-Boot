@@ -2,7 +2,7 @@
 #include "display.h"
 #include "console.h"
 #include "timer.h"
-#include "fpga_bus_ro.h"
+#include "fpga_bus.h"
 #include "ms5351_stock.h"
 
 #define BLACK 0x0000U
