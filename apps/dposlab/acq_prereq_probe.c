@@ -24,6 +24,7 @@
 #include "../../drivers/fpga_bus.h"
 #include "../../drivers/fpga_protocol.h"
 #include "../../drivers/r11_csi.h"
+#include "../../drivers/dpos_acq.h"
 #include "custom_fpga_start.h"
 #include "smec_matrix.h"
 
@@ -56,62 +57,6 @@ static void put_hex(uint32_t value)
     console_puts(text);
 }
 
-
-/* C3B: fully custom fixed-profile stream/CSI geometry configuration. */
-static void custom_configure_csi_stream_fixed(void)
-{
-    /* Custom replacement for stock 0x40065FA8(0x1800). */
-    r11_csi_configure_fixed_stream_geometry();
-
-    /* Custom FPGA bus: selector 0x22, big-endian quantity 0x300E. */
-    fpga_protocol_stream_set_quantity(0x300EU);
-
-    __asm__ volatile ("dmb sy" ::: "memory");
-}
-
-/*
- * C2: fixed-profile custom replacement for stock 0x400406C8(0).
- *
- * Keep only the stock requested-position producer 0x4003FAB8 for this
- * first capture-wrapper substitution. Bank selection, CSI mode, DMA target,
- * capture lifecycle, bounded DONE polling and cleanup are custom.
- */
-static int custom_capture_bank0_fixed(struct dposlab_acq_probe_result *r)
-{
-    uint32_t status_after = 0U;
-
-    fpga_protocol_capture_prepare_position(0U);
-    fpga_protocol_capture_select_bank(0U);
-    fpga_bus_enter_csi_mode();
-
-    r11_csi_set_buffer0((uintptr_t)STOCK_BANK0_ADDRESS);
-    r11_csi_ack(R11_CSI_DONE);
-
-    r->csi_wait_mode = r11_csi_mode();
-    r->csi_wait_buffer0 = r11_csi_buffer0();
-    r->csi_wait_irq_enable = CSI_IRQ_ENABLE_REG;
-    r->csi_wait_status = r11_csi_status();
-    r->csi_wait_polls = 0U;
-    r->csi_wait_hw_done = 0U;
-
-    r11_csi_timer0_gate(0);
-    r11_csi_capture_enable();
-    fpga_capture_gate(1);
-    r->csi_wait_hw_done =
-        r11_csi_wait_done_bounded(CSI_WAIT_LIMIT, &status_after) ? 1U : 0U;
-    fpga_capture_gate(0);
-    r11_csi_timer0_gate(1);
-    r11_csi_ack(R11_CSI_DONE);
-    r11_csi_capture_disable();
-    fpga_bus_leave_csi_mode();
-
-    r->csi_wait_status = status_after;
-    r->csi_wait_mode = r11_csi_mode();
-    r->csi_wait_buffer0 = r11_csi_buffer0();
-    r->csi_wait_irq_enable = CSI_IRQ_ENABLE_REG;
-    r->csi_wait_polls = r->csi_wait_hw_done ? 1U : CSI_WAIT_LIMIT;
-    return r->csi_wait_hw_done != 0U;
-}
 
 static void bank0_fill(uint8_t value)
 {
@@ -243,6 +188,7 @@ void dposlab_acq_variant1_probe(void)
 {
     struct dposlab_acq_probe_result *r = &dposlab_acq_probe_result;
     struct fpga_protocol_ready_result ready;
+    struct dpos_acq_capture_result capture;
 
     r->factory_magic0 = FACTORY_MAGIC_BASE[0];
     r->factory_magic1 = FACTORY_MAGIC_BASE[1];
@@ -320,10 +266,20 @@ void dposlab_acq_variant1_probe(void)
             r->stream_payload_guess = r->stream_quantity >= 14U ?
                 r->stream_quantity - 14U : 0U;
         }
-        custom_configure_csi_stream_fixed();
-
         r->stock_capture_called = 1U;
-        r->stock_capture_returned = custom_capture_bank0_fixed(r) ? 1U : 0U;
+        r->stock_capture_returned = dpos_acq_capture(
+            (uintptr_t)STOCK_BANK0_ADDRESS,
+            0U,
+            0U,
+            CSI_WAIT_LIMIT,
+            &capture) ? 1U : 0U;
+
+        r->csi_wait_status = capture.status_after;
+        r->csi_wait_mode = capture.mode;
+        r->csi_wait_buffer0 = capture.buffer0;
+        r->csi_wait_irq_enable = capture.irq_enable;
+        r->csi_wait_polls = capture.wait_polls;
+        r->csi_wait_hw_done = capture.done ? 1U : 0U;
 
         if (cache_dcache_enabled())
             cache_invalidate_range(STOCK_BANK0_ADDRESS, STOCK_BANK0_SIZE);
