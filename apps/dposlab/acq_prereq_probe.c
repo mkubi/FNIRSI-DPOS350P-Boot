@@ -122,9 +122,8 @@ void dposlab_acq_variant1_probe(void)
     r->prepared0a = 0U;
     r->polls = 0U;
     r->ready = 0U;
-    r->stock_capture_called = 0U;
-    r->stock_capture_returned = 0U;
-    r->csi_wait_hook_installed = 0U;
+    r->capture_called = 0U;
+    r->capture_succeeded = 0U;
     r->csi_wait_polls = 0U;
     r->csi_wait_status = 0U;
     r->csi_wait_mode = 0U;
@@ -184,8 +183,8 @@ void dposlab_acq_variant1_probe(void)
             r->stream_payload_guess = r->stream_quantity >= 14U ?
                 r->stream_quantity - 14U : 0U;
         }
-        r->stock_capture_called = 1U;
-        r->stock_capture_returned = dpos_acq_capture(
+        r->capture_called = 1U;
+        r->capture_succeeded = dpos_acq_capture(
             (uintptr_t)STOCK_BANK0_ADDRESS,
             0U,
             0U,
@@ -217,7 +216,7 @@ void dposlab_acq_variant1_monitor(void)
 
     console_init(WHITE, BLACK, 2U);
     console_clear();
-    console_putln("MINI STOCK + STOCK CSI BANK0");
+    console_putln("DPOS ACQUISITION REGRESSION");
     console_putln("--------------------------");
     console_puts("SMEC PASS    "); console_putln(s->success ? "YES" : "NO");
     console_puts("JOBS DONE    "); put_hex(s->custom.completed_jobs); console_putln("");
@@ -226,9 +225,8 @@ void dposlab_acq_variant1_monitor(void)
     console_puts("ACQ READY    "); console_putln(a->ready ? "YES" : "NO");
     console_puts("0A POLLS     "); put_hex(a->polls); console_putln("");
     console_putln("");
-    console_puts("STOCK CALLED "); console_putln(a->stock_capture_called ? "YES" : "NO");
-    console_puts("STOCK RETURN "); console_putln(a->stock_capture_returned ? "YES" : "NO");
-    console_puts("WAIT HOOK    "); console_putln(a->csi_wait_hook_installed ? "YES" : "NO");
+    console_puts("CAPTURE CALL "); console_putln(a->capture_called ? "YES" : "NO");
+    console_puts("CAPTURE PASS "); console_putln(a->capture_succeeded ? "YES" : "NO");
     console_puts("HW DONE      "); console_putln(a->csi_wait_hw_done ? "YES" : "NO");
     console_puts("WAIT POLLS   "); put_hex(a->csi_wait_polls); console_putln("");
     console_puts("CSI STATUS   "); put_hex(a->csi_wait_status); console_putln("");

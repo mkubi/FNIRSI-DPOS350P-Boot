@@ -13,9 +13,8 @@ struct dposlab_acq_probe_result {
     uint32_t prepared0a;
     uint32_t polls;
     uint32_t ready;
-    uint32_t stock_capture_called;
-    uint32_t stock_capture_returned;
-    uint32_t csi_wait_hook_installed;
+    uint32_t capture_called;
+    uint32_t capture_succeeded;
     uint32_t csi_wait_polls;
     uint32_t csi_wait_status;
     uint32_t csi_wait_mode;
