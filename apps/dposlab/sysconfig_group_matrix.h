@@ -1,0 +1,62 @@
+#ifndef DPOSLAB_SYSCONFIG_GROUP_MATRIX_H
+#define DPOSLAB_SYSCONFIG_GROUP_MATRIX_H
+
+#define SYSCFG_GROUP_STOCK 0
+#define SYSCFG_GROUP_SKIP  2
+
+#ifndef SYSCFG_SC1_1
+#define SYSCFG_SC1_1 SYSCFG_GROUP_STOCK
+#endif
+#ifndef SYSCFG_SC1_2
+#define SYSCFG_SC1_2 SYSCFG_GROUP_STOCK
+#endif
+#ifndef SYSCFG_SC1_3
+#define SYSCFG_SC1_3 SYSCFG_GROUP_STOCK
+#endif
+#ifndef SYSCFG_SC1_4
+#define SYSCFG_SC1_4 SYSCFG_GROUP_STOCK
+#endif
+#ifndef SYSCFG_SC1_5
+#define SYSCFG_SC1_5 SYSCFG_GROUP_STOCK
+#endif
+
+#ifndef SYSCFG_G1
+#define SYSCFG_G1 SYSCFG_GROUP_STOCK
+#endif
+#ifndef SYSCFG_G2
+#define SYSCFG_G2 SYSCFG_GROUP_STOCK
+#endif
+#ifndef SYSCFG_G3
+#define SYSCFG_G3 SYSCFG_GROUP_STOCK
+#endif
+
+#if SYSCFG_G1 != SYSCFG_GROUP_STOCK && SYSCFG_G1 != SYSCFG_GROUP_SKIP
+#error "SYSCFG_G1 must be STOCK (0) or SKIP (2)"
+#endif
+#if SYSCFG_G2 != SYSCFG_GROUP_STOCK && SYSCFG_G2 != SYSCFG_GROUP_SKIP
+#error "SYSCFG_G2 must be STOCK (0) or SKIP (2)"
+#endif
+#if SYSCFG_G3 != SYSCFG_GROUP_STOCK && SYSCFG_G3 != SYSCFG_GROUP_SKIP
+#error "SYSCFG_G3 must be STOCK (0) or SKIP (2)"
+#endif
+
+
+#if SYSCFG_SC1_1 != SYSCFG_GROUP_STOCK && SYSCFG_SC1_1 != SYSCFG_GROUP_SKIP
+#error "SYSCFG_SC1_1 must be STOCK (0) or SKIP (2)"
+#endif
+#if SYSCFG_SC1_2 != SYSCFG_GROUP_STOCK && SYSCFG_SC1_2 != SYSCFG_GROUP_SKIP
+#error "SYSCFG_SC1_2 must be STOCK (0) or SKIP (2)"
+#endif
+#if SYSCFG_SC1_3 != SYSCFG_GROUP_STOCK && SYSCFG_SC1_3 != SYSCFG_GROUP_SKIP
+#error "SYSCFG_SC1_3 must be STOCK (0) or SKIP (2)"
+#endif
+#if SYSCFG_SC1_4 != SYSCFG_GROUP_STOCK && SYSCFG_SC1_4 != SYSCFG_GROUP_SKIP
+#error "SYSCFG_SC1_4 must be STOCK (0) or SKIP (2)"
+#endif
+#if SYSCFG_SC1_5 != SYSCFG_GROUP_STOCK && SYSCFG_SC1_5 != SYSCFG_GROUP_SKIP
+#error "SYSCFG_SC1_5 must be STOCK (0) or SKIP (2)"
+#endif
+
+void dposlab_sysconfig_group_dispatch(void);
+
+#endif
