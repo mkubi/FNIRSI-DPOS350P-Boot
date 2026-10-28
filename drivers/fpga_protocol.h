@@ -45,7 +45,7 @@ struct fpga_protocol_transaction_result {
     int error;
 };
 
-/* Bounded custom replacement for stock transaction engine 0x4004A0B0. */
+/* Bounded FPGA parameter transaction with timing retry. */
 int fpga_protocol_parameter_transaction(
     uint8_t command,
     uint32_t value,
