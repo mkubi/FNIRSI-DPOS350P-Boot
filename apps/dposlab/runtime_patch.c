@@ -8,6 +8,7 @@
 #define STOCK_SMEC_MATRIX_ORIGINAL   0xEB005681U
 #define DPOSLAB_SMEC_MATRIX_VENEER   0x40055AECU
 #define DPOSLAB_CUSTOM_FPGA_VENEER   0x40055AE4U
+#define DPOSLAB_HORIZONTAL_VENEER    0x40055B44U
 #define DPOSLAB_FPGA_VENEER          0x40055B4CU
 
 #define STOCK_FPGA_PHASE_A_SITE      0x400491A8U
@@ -706,6 +707,7 @@ int dposlab_install_fpga_hook(void)
 extern void dposlab_minimal_stock_fpga_hook(void);
 extern void dposlab_smec_matrix_init(void);
 extern void dposlab_custom_fpga_start(void);
+extern void dposlab_horizontal_matrix_init(void);
 
 int dposlab_install_minimal_stock_fpga_hook(void)
 {
@@ -739,6 +741,8 @@ int dposlab_install_minimal_stock_fpga_hook(void)
     uint32_t custom_fpga_branch;
     uint32_t smec_matrix_address;
     uint32_t smec_matrix_branch;
+    uint32_t horizontal_matrix_address;
+    uint32_t horizontal_matrix_branch;
     uint32_t branch;
 
     site = word_at(STOCK_MINIMAL_MAIN_SITE);
@@ -772,6 +776,8 @@ int dposlab_install_minimal_stock_fpga_hook(void)
         (uint32_t)(uintptr_t)dposlab_custom_fpga_start;
     smec_matrix_address =
         (uint32_t)(uintptr_t)dposlab_smec_matrix_init;
+    horizontal_matrix_address =
+        (uint32_t)(uintptr_t)dposlab_horizontal_matrix_init;
 
     /* Refuse an incompatible or already-patched EXE2 image. */
     if (*site != STOCK_MINIMAL_MAIN_ORIGINAL)
@@ -875,15 +881,25 @@ int dposlab_install_minimal_stock_fpga_hook(void)
                             smec_matrix_address);
     *smec_matrix_site = smec_matrix_branch;
 
+    if (!encode_arm_branch(STOCK_HORIZONTAL_INIT_SITE,
+                           DPOSLAB_HORIZONTAL_VENEER,
+                           1U,
+                           &horizontal_matrix_branch))
+        return 0;
+
     if (!encode_arm_branch(STOCK_MINIMAL_MAIN_SITE,
                            DPOSLAB_FPGA_VENEER,
                            0U,
                            &branch))
         return 0;
 
+    install_absolute_veneer(DPOSLAB_HORIZONTAL_VENEER,
+                            horizontal_matrix_address);
+    *horizontal_init_site = horizontal_matrix_branch;
     install_absolute_veneer(DPOSLAB_FPGA_VENEER, hook_address);
     *site = branch;
 
+    cache_clean_range(DPOSLAB_HORIZONTAL_VENEER, 8U);
     cache_clean_range(DPOSLAB_FPGA_VENEER, 8U);
     cache_clean_range(DPOSLAB_SMEC_MATRIX_VENEER, 8U);
     cache_clean_range(STOCK_SMEC_MATRIX_SITE, 4U);
@@ -917,6 +933,7 @@ int dposlab_install_minimal_stock_fpga_hook(void)
     cache_isb();
 
     return
+        *horizontal_init_site == horizontal_matrix_branch &&
         *site == branch &&
         veneer[0] == ARM_LDR_PC_PC_MINUS_4 &&
         veneer[1] == hook_address;

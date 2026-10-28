@@ -18,9 +18,15 @@ FPGA_F1 ?= 1
 FPGA_F2 ?= 2
 FPGA_F3 ?= 1
 FPGA_F4 ?= 1
+HORIZONTAL_H1 ?= 0
+HORIZONTAL_H2 ?= 0
+HORIZONTAL_H3 ?= 0
+HORIZONTAL_H4 ?= 0
+HORIZONTAL_H5 ?= 0
+HORIZONTAL_H6 ?= 0
 INCLUDES := -I$(ROOT)/arch/r11 -I$(ROOT)/board/dpos350p -I$(ROOT)/drivers -I$(ROOT)/ui -I$(ROOT)/loader
-CFLAGS := -O2 -mcpu=cortex-a7 -marm -mno-unaligned-access -ffreestanding -fno-builtin -fno-common -fno-stack-protector -fno-unwind-tables -fno-asynchronous-unwind-tables -nostdlib -Wall -Wextra -Werror -DDPOSLAB_MODE=$(DPOSLAB_MODE) -DDPOSLAB_ACQ_CHECKPOINT=$(DPOSLAB_ACQ_CHECKPOINT) -DDPOSLAB_PRIMITIVE_TEST=$(DPOSLAB_PRIMITIVE_TEST) -DSMEC_S1=$(SMEC_S1) -DSMEC_S2=$(SMEC_S2) -DSMEC_S3=$(SMEC_S3) -DSMEC_S4=$(SMEC_S4) -DFPGA_F1=$(FPGA_F1) -DFPGA_F2=$(FPGA_F2) -DFPGA_F3=$(FPGA_F3) -DFPGA_F4=$(FPGA_F4) $(INCLUDES)
-SOURCES_C :=     acq_prereq_probe.c     stock_primitive_smec_test.c     main.c     stock_api.c     runtime_patch.c     runtime_snapshot.c     runtime_trace.c     runtime_export.c     $(ROOT)/arch/r11/cache.c     $(ROOT)/drivers/gpio.c     $(ROOT)/drivers/display.c     $(ROOT)/drivers/fpga_bus_ro.c     $(ROOT)/ui/font8x8.c     $(ROOT)/ui/console.c     custom_fpga_start.c     $(ROOT)/arch/r11/timer.c     $(ROOT)/drivers/ms5351_stock.c     $(ROOT)/drivers/r11_csi.c     smec_matrix.c     csi_bank0_probe.c
+CFLAGS := -O2 -mcpu=cortex-a7 -marm -mno-unaligned-access -ffreestanding -fno-builtin -fno-common -fno-stack-protector -fno-unwind-tables -fno-asynchronous-unwind-tables -nostdlib -Wall -Wextra -Werror -DDPOSLAB_MODE=$(DPOSLAB_MODE) -DDPOSLAB_ACQ_CHECKPOINT=$(DPOSLAB_ACQ_CHECKPOINT) -DDPOSLAB_PRIMITIVE_TEST=$(DPOSLAB_PRIMITIVE_TEST) -DSMEC_S1=$(SMEC_S1) -DSMEC_S2=$(SMEC_S2) -DSMEC_S3=$(SMEC_S3) -DSMEC_S4=$(SMEC_S4) -DFPGA_F1=$(FPGA_F1) -DFPGA_F2=$(FPGA_F2) -DFPGA_F3=$(FPGA_F3) -DFPGA_F4=$(FPGA_F4) -DHORIZONTAL_H1=$(HORIZONTAL_H1) -DHORIZONTAL_H2=$(HORIZONTAL_H2) -DHORIZONTAL_H3=$(HORIZONTAL_H3) -DHORIZONTAL_H4=$(HORIZONTAL_H4) -DHORIZONTAL_H5=$(HORIZONTAL_H5) -DHORIZONTAL_H6=$(HORIZONTAL_H6) $(INCLUDES)
+SOURCES_C := horizontal_matrix.c         acq_prereq_probe.c     stock_primitive_smec_test.c     main.c     stock_api.c     runtime_patch.c     runtime_snapshot.c     runtime_trace.c     runtime_export.c     $(ROOT)/arch/r11/cache.c     $(ROOT)/drivers/gpio.c     $(ROOT)/drivers/display.c     $(ROOT)/drivers/fpga_bus_ro.c     $(ROOT)/ui/font8x8.c     $(ROOT)/ui/console.c     custom_fpga_start.c     $(ROOT)/arch/r11/timer.c     $(ROOT)/drivers/ms5351_stock.c     $(ROOT)/drivers/r11_csi.c     smec_matrix.c     csi_bank0_probe.c
 SOURCES_S := start.S stock_jump.S runtime_hook.S
 OBJECTS := $(patsubst %.c,$(BUILD)/%.o,$(SOURCES_C)) $(patsubst %.S,$(BUILD)/%.o,$(SOURCES_S))
 .PHONY: all clean
