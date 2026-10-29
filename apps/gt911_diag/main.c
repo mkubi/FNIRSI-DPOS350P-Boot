@@ -4,6 +4,8 @@
 #include "console.h"
 #include "gt911.h"
 #include "timer.h"
+#include "cache.h"
+#include "mmu.h"
 
 #define WHITE  0xFFFFU
 #define GREEN  0x07E0U
@@ -26,6 +28,17 @@ struct diag_stats {
     uint32_t max_poll_us;
     uint32_t last_draw_ms;
     uint32_t max_draw_ms;
+    uint32_t last_clear_ms;
+    uint32_t max_clear_ms;
+    uint32_t last_text_ms;
+    uint32_t max_text_ms;
+    uint32_t last_present_ms;
+    uint32_t max_present_ms;
+    uint32_t draw_count;
+    uint32_t sctlr_before;
+    uint32_t sctlr;
+    uint32_t ttbr0;
+    uint32_t dacr;
     uint8_t raw_status;
     uint8_t int_level;
     uint8_t data_ready;
@@ -34,6 +47,39 @@ struct diag_stats {
     uint16_t y;
     int last_result;
 };
+
+static uint32_t read_sctlr_diag(void)
+{
+    uint32_t value;
+
+    __asm__ volatile (
+        "mrc p15, 0, %0, c1, c0, 0"
+        : "=r" (value)
+    );
+    return value;
+}
+
+static uint32_t read_ttbr0_diag(void)
+{
+    uint32_t value;
+
+    __asm__ volatile (
+        "mrc p15, 0, %0, c2, c0, 0"
+        : "=r" (value)
+    );
+    return value;
+}
+
+static uint32_t read_dacr_diag(void)
+{
+    uint32_t value;
+
+    __asm__ volatile (
+        "mrc p15, 0, %0, c3, c0, 0"
+        : "=r" (value)
+    );
+    return value;
+}
 
 static char hex_digit(uint32_t value)
 {
@@ -137,60 +183,87 @@ static void poll_touch(struct diag_stats *stats)
 }
 
 static void draw_screen(const gt911_info_t *info,
-                        const struct diag_stats *stats,
+                        struct diag_stats *stats,
                         int init_ok,
                         int probe_ok,
                         int poll_only)
 {
-    uint32_t start;
-    uint32_t end;
-    uint32_t duration_ms;
-    struct diag_stats *mutable_stats = (struct diag_stats *)stats;
+    uint32_t total_start;
+    uint32_t clear_end;
+    uint32_t text_end;
+    uint32_t present_end;
+    uint32_t value;
 
-    start = timer_ticks();
-
+    total_start = timer_ticks();
     console_clear();
+    clear_end = timer_ticks();
+
     console_set_color(YELLOW);
-    console_putln("GT911 DIAGNOSTIC");
+    console_putln("GT911 / DISPLAY DIAGNOSTIC");
     console_set_color(WHITE);
-    console_putln("----------------");
+    console_putln("--------------------------");
     result_line("INIT          ", init_ok);
     result_line("PROBE         ", probe_ok);
     console_puts("PRODUCT ID    ");
     console_putln(probe_ok ? info->product_id : "----");
-    line_hex("ADDRESS       ", info->address);
     console_puts("PHASE         ");
-    console_putln(poll_only ? "POLL ONLY" : "POLL + DRAW");
+    console_putln(poll_only ? "POLL ONLY" : "FULL REDRAW FAST PATH");
+    line_hex("SCTLR BEFORE  ", stats->sctlr_before);
+    line_hex("SCTLR AFTER   ", stats->sctlr);
+    line_dec("MMU ENABLE    ", (stats->sctlr & (1U << 0)) != 0U);
+    line_dec("DCACHE ENABLE ", (stats->sctlr & (1U << 2)) != 0U);
+    line_dec("ICACHE ENABLE ", (stats->sctlr & (1U << 12)) != 0U);
+    line_hex("TTBR0         ", stats->ttbr0);
+    line_hex("DACR          ", stats->dacr);
     console_putln("");
 
     line_dec("POLL COUNT    ", stats->polls);
     line_dec("POLL ERRORS   ", stats->errors);
     line_dec("READY EVENTS  ", stats->ready_events);
     line_dec("TOUCH EVENTS  ", stats->touch_events);
-    line_dec("STATUS CLEARS ", stats->clear_events);
-    line_hex("LAST RESULT   ", (uint32_t)stats->last_result);
-    console_putln("");
-
     line_hex("RAW STATUS    ", stats->raw_status);
-    line_dec("DATA READY    ", stats->data_ready);
-    line_dec("POINTS        ", stats->points);
     line_dec("X             ", stats->x);
     line_dec("Y             ", stats->y);
-    line_dec("INT LEVEL     ", stats->int_level);
     console_putln("");
 
     line_dec("POLL LAST US  ", stats->last_poll_us);
     line_dec("POLL MAX US   ", stats->max_poll_us);
-    line_dec("DRAW LAST MS  ", stats->last_draw_ms);
-    line_dec("DRAW MAX MS   ", stats->max_draw_ms);
+    line_dec("CLEAR LAST MS ", stats->last_clear_ms);
+    line_dec("CLEAR MAX MS  ", stats->max_clear_ms);
+    line_dec("TEXT LAST MS  ", stats->last_text_ms);
+    line_dec("TEXT MAX MS   ", stats->max_text_ms);
+    line_dec("PRESENT LAST  ", stats->last_present_ms);
+    line_dec("PRESENT MAX   ", stats->max_present_ms);
+    line_dec("TOTAL LAST MS ", stats->last_draw_ms);
+    line_dec("TOTAL MAX MS  ", stats->max_draw_ms);
 
-    console_present();
+    text_end = timer_ticks();
 
-    end = timer_ticks();
-    duration_ms = (end - start) / 24000U;
-    mutable_stats->last_draw_ms = duration_ms;
-    if (duration_ms > mutable_stats->max_draw_ms)
-        mutable_stats->max_draw_ms = duration_ms;
+    /* Full redraw: swap only. The next frame begins with console_clear(). */
+    console_present_swap_only();
+    present_end = timer_ticks();
+
+    value = (clear_end - total_start) / 24000U;
+    stats->last_clear_ms = value;
+    if (value > stats->max_clear_ms)
+        stats->max_clear_ms = value;
+
+    value = (text_end - clear_end) / 24000U;
+    stats->last_text_ms = value;
+    if (value > stats->max_text_ms)
+        stats->max_text_ms = value;
+
+    value = (present_end - text_end) / 24000U;
+    stats->last_present_ms = value;
+    if (value > stats->max_present_ms)
+        stats->max_present_ms = value;
+
+    value = (present_end - total_start) / 24000U;
+    stats->last_draw_ms = value;
+    if (value > stats->max_draw_ms)
+        stats->max_draw_ms = value;
+
+    ++stats->draw_count;
 }
 
 static void checkpoint(const char *line1, const char *line2)
@@ -210,6 +283,7 @@ int main(void)
 {
     gt911_info_t info;
     struct diag_stats stats;
+    struct mmu_state mmu_state;
     uint32_t next_poll;
     uint32_t next_draw;
     uint32_t now;
@@ -225,6 +299,19 @@ int main(void)
     stats.max_poll_us = 0U;
     stats.last_draw_ms = 0U;
     stats.max_draw_ms = 0U;
+    stats.last_clear_ms = 0U;
+    stats.max_clear_ms = 0U;
+    stats.last_text_ms = 0U;
+    stats.max_text_ms = 0U;
+    stats.last_present_ms = 0U;
+    stats.max_present_ms = 0U;
+    stats.draw_count = 0U;
+    mmu_enable_identity_dram_cache(&mmu_state);
+
+    stats.sctlr_before = mmu_state.sctlr_before;
+    stats.sctlr = read_sctlr_diag();
+    stats.ttbr0 = read_ttbr0_diag();
+    stats.dacr = read_dacr_diag();
     stats.raw_status = 0U;
     stats.int_level = 0U;
     stats.data_ready = 0U;

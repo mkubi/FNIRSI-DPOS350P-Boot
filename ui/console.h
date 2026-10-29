@@ -9,4 +9,5 @@ void console_puts(const char *s);
 void console_putln(const char *s);
 void console_status(const char *label, const char *status, uint16_t status_color);
 void console_present(void);
+void console_present_swap_only(void);
 #endif

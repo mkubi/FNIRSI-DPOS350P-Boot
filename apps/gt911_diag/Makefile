@@ -18,6 +18,7 @@ CFLAGS := -O2 -mcpu=cortex-a7 -marm -mno-unaligned-access \
 
 SOURCES_C := main.c \
     $(ROOT)/arch/r11/cache.c \
+    $(ROOT)/arch/r11/mmu.c \
     $(ROOT)/arch/r11/timer.c \
     $(ROOT)/drivers/gpio.c \
     $(ROOT)/drivers/display.c \

@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include "cache.h"
+#include "mmu.h"
 #include "jump.h"
 #include "start.h"
 
@@ -40,6 +41,9 @@ void loader_start_image(const loader_image_t *image)
 
     cache_dsb();
     cache_isb();
+
+    /* Preserve the historical image-entry contract. */
+    mmu_disable_identity_cache();
 
     loader_jump(image->entry_address);
 }

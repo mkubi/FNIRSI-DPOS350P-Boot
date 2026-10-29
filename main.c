@@ -2,6 +2,7 @@
 #include "display.h"
 #include "console.h"
 #include "timer.h"
+#include "mmu.h"
 #include "gt911.h"
 #include "boot_targets.h"
 #include "boot_menu.h"
@@ -90,6 +91,9 @@ int main(void)
     int load_result;
     int dposdbg_result;
     loader_image_t dposlab_image;
+
+    /* Cacheable DRAM makes framebuffer and loader traffic practical. */
+    mmu_enable_identity_dram_cache(0);
 
     display_init();
     console_init(WHITE, BLACK, 2U);
