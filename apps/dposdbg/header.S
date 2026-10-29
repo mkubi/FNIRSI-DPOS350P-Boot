@@ -26,7 +26,7 @@ dposdbg_header:
     .word 2
     .word __image_size
     .word dposdbg_trace
-    .word 31
+    .word 53
     .word dposdbg_hook_table - dposdbg_header
     .word 0
     .word 0
@@ -65,3 +65,28 @@ dposdbg_hook_table:
     HOOK 0x4004A01C, 0xEAFFFC7C, 0x40055AE4, dposdbg_fpga_write_wrapper, DPOSDBG_PATCH_ARM_B
     HOOK 0x4004A07C, 0xEAFFFC4D, 0x40055AEC, dposdbg_fpga_read_wrapper, DPOSDBG_PATCH_ARM_B
     HOOK 0x40034750, 0xEB005681, 0x40055AF4, dposdbg_smec_init_wrapper, DPOSDBG_PATCH_ARM_BL
+
+    /* Frontend direct FPGA coverage: selectors 0x28..0x30 and 0x62. */
+    HOOK 0x4004AA4C, 0xEBFFFA0A, 0x40055ADC, dposdbg_fpga_selector_wrapper, DPOSDBG_PATCH_ARM_BL
+    HOOK 0x4004AA54, 0xEBFFF9EE, 0x40055AE4, dposdbg_fpga_write_wrapper, DPOSDBG_PATCH_ARM_BL
+    HOOK 0x4004AA7C, 0xEBFFF9FE, 0x40055ADC, dposdbg_fpga_selector_wrapper, DPOSDBG_PATCH_ARM_BL
+    HOOK 0x4004AA90, 0xEAFFF9DF, 0x40055AE4, dposdbg_fpga_write_wrapper, DPOSDBG_PATCH_ARM_B
+    HOOK 0x4004AA9C, 0xEBFFF9F6, 0x40055ADC, dposdbg_fpga_selector_wrapper, DPOSDBG_PATCH_ARM_BL
+    HOOK 0x4004AAAC, 0xEBFFF9D8, 0x40055AE4, dposdbg_fpga_write_wrapper, DPOSDBG_PATCH_ARM_BL
+    HOOK 0x4004AABC, 0xEAFFF9D4, 0x40055AE4, dposdbg_fpga_write_wrapper, DPOSDBG_PATCH_ARM_B
+    HOOK 0x4004AAE8, 0xEBFFF9E3, 0x40055ADC, dposdbg_fpga_selector_wrapper, DPOSDBG_PATCH_ARM_BL
+    HOOK 0x4004AAFC, 0xEBFFF9C4, 0x40055AE4, dposdbg_fpga_write_wrapper, DPOSDBG_PATCH_ARM_BL
+    HOOK 0x4004AB6C, 0xEBFFF9C2, 0x40055ADC, dposdbg_fpga_selector_wrapper, DPOSDBG_PATCH_ARM_BL
+    HOOK 0x4004AB80, 0xEAFFF9A3, 0x40055AE4, dposdbg_fpga_write_wrapper, DPOSDBG_PATCH_ARM_B
+    HOOK 0x4004AB90, 0xEBFFF9B9, 0x40055ADC, dposdbg_fpga_selector_wrapper, DPOSDBG_PATCH_ARM_BL
+    HOOK 0x4004ABA4, 0xEAFFF99A, 0x40055AE4, dposdbg_fpga_write_wrapper, DPOSDBG_PATCH_ARM_B
+    HOOK 0x4004ABB4, 0xEBFFF9B0, 0x40055ADC, dposdbg_fpga_selector_wrapper, DPOSDBG_PATCH_ARM_BL
+    HOOK 0x4004ABC8, 0xEAFFF991, 0x40055AE4, dposdbg_fpga_write_wrapper, DPOSDBG_PATCH_ARM_B
+    HOOK 0x4004ABDC, 0xEBFFF9A6, 0x40055ADC, dposdbg_fpga_selector_wrapper, DPOSDBG_PATCH_ARM_BL
+    HOOK 0x4004ABEC, 0xEBFFF988, 0x40055AE4, dposdbg_fpga_write_wrapper, DPOSDBG_PATCH_ARM_BL
+    HOOK 0x4004AC00, 0xEAFFF983, 0x40055AE4, dposdbg_fpga_write_wrapper, DPOSDBG_PATCH_ARM_B
+    HOOK 0x4004AC2C, 0xEBFFF992, 0x40055ADC, dposdbg_fpga_selector_wrapper, DPOSDBG_PATCH_ARM_BL
+    HOOK 0x4004AC40, 0xEBFFF973, 0x40055AE4, dposdbg_fpga_write_wrapper, DPOSDBG_PATCH_ARM_BL
+    HOOK 0x4004ACB0, 0xEBFFF971, 0x40055ADC, dposdbg_fpga_selector_wrapper, DPOSDBG_PATCH_ARM_BL
+    HOOK 0x4004ACC4, 0xEAFFF952, 0x40055AE4, dposdbg_fpga_write_wrapper, DPOSDBG_PATCH_ARM_B
+

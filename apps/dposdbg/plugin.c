@@ -1,7 +1,7 @@
 #include <stdint.h>
 
 #define DPOSDBG_TRACE_MAGIC       0x30435254U /* "TRC0" */
-#define DPOSDBG_TRACE_VERSION     5U
+#define DPOSDBG_TRACE_VERSION     6U
 #define DPOSDBG_TRACE_CAPACITY    768U
 
 #define DPOSDBG_EVENT_FPGA_SELECTOR 0x00001000U
@@ -9,6 +9,9 @@
 #define DPOSDBG_EVENT_FPGA_READ     0x00001002U
 #define DPOSDBG_EVENT_CSI_DESTINATION 0x00002000U
 #define JOB_FLAG_CSI_DESTINATION   (1U << 13)
+#define JOB_FLAG_RAW_SELECTOR      (1U << 14)
+#define JOB_FLAG_RAW_WRITE         (1U << 15)
+#define JOB_FLAG_RAW_READ          (1U << 16)
 
 #define JOB_FLAG_HAVE_69          (1U << 0)
 #define JOB_FLAG_HAVE_6A          (1U << 1)
@@ -450,6 +453,158 @@ static uint32_t smec_trace_captured = 0U;
 __attribute__((section(".data"), used, aligned(4)))
 static uint32_t job_active = 0U;
 
+static uint32_t read_u32(uint32_t address);
+static uint32_t read_u8(uint32_t address);
+
+/* T1 frontend profile: record every covered FPGA primitive until the
+ * post-screenshot hook freezes the ring and exports it. */
+__attribute__((section(".data"), used, aligned(4)))
+static uint32_t frontend_trace_enabled = 1U;
+
+/*
+ * Current raw FPGA selector.
+ *
+ * Selector 0x65 is polled extremely frequently. Busy polling is represented
+ * by the reconstructed job poll65_count and must not consume raw ring slots.
+ */
+static uint32_t raw_current_selector = 0U;
+
+
+#define IDLE_HB_RECORD_COUNT 16U
+
+typedef struct {
+    uint32_t event;
+    uint32_t value;
+} dposdbg_idle_hb_step_t;
+
+/* Exact zero-valued frontend heartbeat emitted by 0x4004A510. */
+static const dposdbg_idle_hb_step_t idle_hb_pattern[IDLE_HB_RECORD_COUNT] = {
+    {DPOSDBG_EVENT_FPGA_SELECTOR, 0x62U},
+    {DPOSDBG_EVENT_FPGA_WRITE, 0x00U},
+    {DPOSDBG_EVENT_FPGA_SELECTOR, 0x2AU},
+    {DPOSDBG_EVENT_FPGA_WRITE, 0x00U},
+    {DPOSDBG_EVENT_FPGA_WRITE, 0x00U},
+    {DPOSDBG_EVENT_FPGA_SELECTOR, 0x2DU},
+    {DPOSDBG_EVENT_FPGA_WRITE, 0x00U},
+    {DPOSDBG_EVENT_FPGA_WRITE, 0x00U},
+    {DPOSDBG_EVENT_FPGA_SELECTOR, 0x2FU},
+    {DPOSDBG_EVENT_FPGA_WRITE, 0x00U},
+    {DPOSDBG_EVENT_FPGA_SELECTOR, 0x29U},
+    {DPOSDBG_EVENT_FPGA_WRITE, 0x00U},
+    {DPOSDBG_EVENT_FPGA_SELECTOR, 0x30U},
+    {DPOSDBG_EVENT_FPGA_WRITE, 0x00U},
+    {DPOSDBG_EVENT_FPGA_SELECTOR, 0x2CU},
+    {DPOSDBG_EVENT_FPGA_WRITE, 0x00U}
+};
+static dposdbg_job_record_t idle_hb_pending[IDLE_HB_RECORD_COUNT];
+static uint32_t idle_hb_pending_count = 0U;
+
+static void publish_raw_record(dposdbg_job_record_t *raw)
+{
+    dposdbg_job_record_t *record;
+    uint32_t index;
+    uint32_t slot;
+    index = dposdbg_trace.write_index;
+    slot = index % DPOSDBG_TRACE_CAPACITY;
+    if (index >= DPOSDBG_TRACE_CAPACITY)
+        dposdbg_trace.wrapped = 1U;
+    raw->sequence = index;
+    record = &dposdbg_trace.records[slot];
+    *record = *raw;
+    __asm__ volatile ("dmb ish" ::: "memory");
+    dposdbg_trace.write_index = index + 1U;
+}
+
+static void flush_idle_hb_pending(void)
+{
+    uint32_t i;
+    for (i = 0U; i < idle_hb_pending_count; ++i)
+        publish_raw_record(&idle_hb_pending[i]);
+    idle_hb_pending_count = 0U;
+}
+
+static uint32_t idle_hb_step_matches(uint32_t position, uint32_t event,
+                                     uint32_t value)
+{
+    const dposdbg_idle_hb_step_t *expected = &idle_hb_pattern[position];
+    return expected->event == event &&
+           expected->value == (value & 0xFFU);
+}
+
+static void filter_or_publish_raw(dposdbg_job_record_t *raw, uint32_t event,
+                                  uint32_t value)
+{
+    if (idle_hb_pending_count != 0U &&
+        !idle_hb_step_matches(idle_hb_pending_count, event, value)) {
+        flush_idle_hb_pending();
+    }
+    if (idle_hb_step_matches(idle_hb_pending_count, event, value)) {
+        idle_hb_pending[idle_hb_pending_count++] = *raw;
+        if (idle_hb_pending_count == IDLE_HB_RECORD_COUNT) {
+            /* Exact idle heartbeat matched: discard all 16 pending records. */
+            idle_hb_pending_count = 0U;
+        }
+        return;
+    }
+    publish_raw_record(raw);
+}
+
+static void append_raw_primitive(uint32_t event, uint32_t value,
+                                 uint32_t call_site)
+{
+    dposdbg_job_record_t raw;
+    uint32_t flags;
+
+    if (frontend_trace_enabled == 0U)
+        return;
+
+    if (event == DPOSDBG_EVENT_FPGA_SELECTOR) {
+        raw_current_selector = value & 0xFFU;
+
+        /*
+         * Omit SELECT 0x65. Preserve only its final READY read below.
+         * The full poll count remains available in reconstructed job records.
+         */
+        if (raw_current_selector == 0x65U)
+            return;
+
+        flags = JOB_FLAG_RAW_SELECTOR;
+    } else if (event == DPOSDBG_EVENT_FPGA_WRITE) {
+        flags = JOB_FLAG_RAW_WRITE;
+    } else if (event == DPOSDBG_EVENT_FPGA_READ) {
+        /*
+         * Suppress busy reads from 0x65. Keep the first response with
+         * READY bit 0 set.
+         */
+        if (raw_current_selector == 0x65U &&
+            ((value & 1U) == 0U))
+            return;
+
+        flags = JOB_FLAG_RAW_READ;
+    } else {
+        return;
+    }
+
+    raw.sequence = 0U;
+    raw.tick_ms = read_u32(STOCK_TOUCH_TICK);
+    raw.run_count = read_u32(STOCK_SYS_RUN_COUNT);
+    raw.state_pack = read_u8(STOCK_RUN_STOP) & 0xFFU;
+    raw.flags = flags;
+    raw.value_69 = 0U;
+    raw.value_6a = 0U;
+    raw.value_6b = value & 0xFFU;
+    raw.poll65_count = 0U;
+    raw.result_66 = 0U;
+    raw.status_pack = 0U;
+    raw.counts_pack = 0U;
+    raw.begin_call_site = call_site;
+    raw.last_call_site = call_site;
+    raw.selector_count = event == DPOSDBG_EVENT_FPGA_SELECTOR ? 1U : 0U;
+    raw.primitive_count = 1U;
+
+    filter_or_publish_raw(&raw, event, value);
+}
+
 static uint32_t count_get(uint32_t shift)
 {
     return (current_job.counts_pack >> shift) & 0xFFU;
@@ -685,6 +840,10 @@ void dposdbg_smec_trace_end(void)
 void dposdbg_trace_primitive(uint32_t event, uint32_t value,
                              uint32_t call_site)
 {
+    /* Raw primitive evidence is the authoritative T1 protocol trace. */
+    append_raw_primitive(event, value, call_site);
+
+    /* Retain the historical first-SMEC reconstructed job records too. */
     if (smec_trace_active == 0U)
         return;
     if (event == DPOSDBG_EVENT_CSI_DESTINATION) {
@@ -742,7 +901,7 @@ static int trace_export(void)
     return close_result;
 }
 
-static int smec_init_export(void)
+static int __attribute__((unused)) smec_init_export(void)
 {
     stock_f_open_t stock_f_open =
         (stock_f_open_t)(uintptr_t)STOCK_F_OPEN;
@@ -765,6 +924,15 @@ static int smec_init_export(void)
 
 void dposdbg_after_screenshot(void)
 {
+    /*
+     * Preserve a partial or mismatching heartbeat candidate before freezing.
+     * A complete exact idle heartbeat has already been discarded.
+     */
+    flush_idle_hb_pending();
+    /* Freeze before FAT activity so export cannot contaminate T1. */
+    frontend_trace_enabled = 0U;
+    __asm__ volatile ("dmb ish" ::: "memory");
+
     /* Preserve a partial in-flight transaction in the exported snapshot. */
     if (job_active != 0U)
         commit_current_job(JOB_FLAG_TRUNCATED);
@@ -774,5 +942,4 @@ void dposdbg_after_screenshot(void)
      * checkpoint snapshots remain in source for reference, but are no longer
      * exported or hooked by this build. */
     (void)trace_export();
-    (void)smec_init_export();
 }

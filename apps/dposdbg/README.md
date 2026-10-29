@@ -75,3 +75,21 @@ keeping them as `B`, so the wrappers inherit the original caller LR and retain
 tail-call return semantics. No additional stock code-cave space is consumed.
 A job is now COMPLETE only when byte counts are exactly 2/1/4/4 for commands
 0x69/0x6A/0x6B/0x66. Otherwise `INCOMPLETE_PAYLOAD` is set.
+
+
+## Frontend T1 profile, trace version 6
+
+This profile records every covered FPGA selector, write and read primitive from
+full stock runtime into the existing circular ring. The post-screenshot hook
+freezes the ring before FAT activity and exports `/DPOSDBG.TRC`.
+
+T1 procedure: boot the stock default profile, switch CH1 from ON to OFF, then
+immediately take a screenshot. Decode with:
+
+```sh
+python3 tools/decode_dposdbg_frontend_t1.py DPOSDBG.TRC --tail 400
+```
+
+Raw records use flag bits 14, 15 and 16 for SELECT, WRITE and READ respectively.
+Historical first-SMEC reconstructed job records remain present for startup
+comparison, but the raw primitive records are authoritative for T1.
