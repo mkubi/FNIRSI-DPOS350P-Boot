@@ -24,7 +24,8 @@ volatile uint32_t g_dposlab_sc1_5_1_profile_error
 volatile uint32_t g_dposlab_sc1_5_3_profile_error
     __attribute__((section(".data"), used));
 
-#if SYSCFG_SC1_5 == SYSCFG_GROUP_STOCK
+#if SYSCFG_G1 == SYSCFG_GROUP_STOCK && \
+    SYSCFG_SC1_5 == SYSCFG_GROUP_STOCK
 static void capture_sc1_5_3_inputs(void)
 {
     volatile const uint8_t *state8 =
@@ -48,7 +49,8 @@ static void __attribute__((unused)) call_stock(uint32_t address)
     ((stock_void_fn_t)(uintptr_t)address)();
 }
 
-#if SYSCFG_SC1_3 == SYSCFG_GROUP_STOCK
+#if SYSCFG_G1 == SYSCFG_GROUP_STOCK && \
+    SYSCFG_SC1_3 == SYSCFG_GROUP_STOCK
 static void capture_and_call_stock_sc1_3(void)
 {
     volatile const uint8_t *state8 =
@@ -108,7 +110,8 @@ static void capture_and_call_stock_sc1_3(void)
 }
 #endif
 
-#if SYSCFG_SC1_5 == SYSCFG_GROUP_STOCK
+#if SYSCFG_G1 == SYSCFG_GROUP_STOCK && \
+    SYSCFG_SC1_5 == SYSCFG_GROUP_STOCK
 static void capture_and_call_stock_sc1_5_1(void)
 {
     volatile const uint8_t *state8 =
@@ -138,7 +141,8 @@ static void capture_and_call_stock_sc1_5_1(void)
 
 #define STOCK_APP_STATE_BASE 0x40544E68U
 
-#if SYSCFG_SC1_2 == SYSCFG_GROUP_CUSTOM
+#if SYSCFG_SC1_2 == SYSCFG_GROUP_CUSTOM || \
+    SYSCFG_G1 == SYSCFG_GROUP_CUSTOM
 /* Exact stock-like replacement of SC1.2 @ 0x4003A908. */
 static void custom_sc1_2(void)
 {
@@ -175,7 +179,8 @@ static void custom_sc1_2(void)
 }
 #endif
 
-#if SYSCFG_SC1_5 == SYSCFG_GROUP_CUSTOM
+#if SYSCFG_SC1_5 == SYSCFG_GROUP_CUSTOM || \
+    SYSCFG_G1 == SYSCFG_GROUP_CUSTOM
 static void custom_sc1_5_2_write_byte(volatile uint8_t *state,
                                      uint32_t source_offset,
                                      uint32_t shadow_offset,
@@ -244,7 +249,8 @@ static void custom_sc1_5_2(void)
 }
 #endif
 
-#if SYSCFG_SC1_5 == SYSCFG_GROUP_CUSTOM
+#if SYSCFG_SC1_5 == SYSCFG_GROUP_CUSTOM || \
+    SYSCFG_G1 == SYSCFG_GROUP_CUSTOM
 /* Exact stock-like replacement of SC1.5.4 @ 0x40063CD0. */
 static void custom_sc1_5_4(void)
 {
@@ -282,7 +288,8 @@ static void custom_sc1_5_4(void)
 }
 #endif
 
-#if SYSCFG_SC1_5 == SYSCFG_GROUP_CUSTOM
+#if SYSCFG_SC1_5 == SYSCFG_GROUP_CUSTOM || \
+    SYSCFG_G1 == SYSCFG_GROUP_CUSTOM
 /*
  * Minimal stock-like replacement of SC1.5.3 @ 0x40063F04.
  *
@@ -347,7 +354,8 @@ static void custom_sc1_5_3(void)
 }
 #endif
 
-#if SYSCFG_SC1_5 == SYSCFG_GROUP_CUSTOM
+#if SYSCFG_SC1_5 == SYSCFG_GROUP_CUSTOM || \
+    SYSCFG_G1 == SYSCFG_GROUP_CUSTOM
 /*
  * Minimal stock-like replacement of SC1.5.1 @ 0x4003F2F4.
  *
@@ -413,7 +421,8 @@ static void custom_sc1_5_1(void)
 }
 #endif
 
-#if SYSCFG_SC1_3 == SYSCFG_GROUP_CUSTOM
+#if SYSCFG_SC1_3 == SYSCFG_GROUP_CUSTOM || \
+    SYSCFG_G1 == SYSCFG_GROUP_CUSTOM
 /*
  * SC1.3 profile smoke test T6.
  *
@@ -478,6 +487,196 @@ static void custom_sc1_3(void)
 }
 #endif
 
+#if SYSCFG_G2_7 == SYSCFG_GROUP_CUSTOM || \
+    SYSCFG_G2 == SYSCFG_GROUP_CUSTOM || \
+    SYSCFG_G3_6 == SYSCFG_GROUP_CUSTOM || \
+    SYSCFG_G3 == SYSCFG_GROUP_CUSTOM
+/*
+ * Cached stock-equivalent SysConfig job update.
+ *
+ * Stock 0x40049EC4 stores one value cache at APP_STATE +0x3FC+job*4,
+ * one valid byte at APP_STATE +0x7F8+job, submits the parameter job when
+ * either differs, then marks APP_STATE +0x8F7 dirty for the final commit.
+ */
+static void custom_syscfg_cached_job(uint8_t job, uint32_t value)
+{
+    volatile uint8_t *state8 =
+        (volatile uint8_t *)(uintptr_t)STOCK_APP_STATE_BASE;
+    volatile uint32_t *cached_value =
+        (volatile uint32_t *)(uintptr_t)
+            (STOCK_APP_STATE_BASE + 0x3FCU + (uint32_t)job * 4U);
+    uint32_t valid_offset = 0x7F8U + (uint32_t)job;
+
+    if (*cached_value == value && state8[valid_offset] != 0U)
+        return;
+
+    state8[valid_offset] = 1U;
+    *cached_value = value;
+
+    /* Stock ignores the transaction return and still marks the batch dirty. */
+    (void)fpga_protocol_parameter_transaction(job, value, 0);
+    state8[0x8F7U] = 1U;
+}
+
+/* Stock 0x40049F1C: submit commit job 0xB6 only for a dirty job batch. */
+static void custom_syscfg_commit_if_dirty(uint8_t commit_job)
+{
+    volatile uint8_t *state =
+        (volatile uint8_t *)(uintptr_t)STOCK_APP_STATE_BASE;
+
+    if (state[0x8F7U] == 0U)
+        return;
+
+    (void)fpga_protocol_parameter_transaction(commit_job, 0U, 0);
+    state[0x8F7U] = 0U;
+}
+
+#if SYSCFG_G2_7 == SYSCFG_GROUP_CUSTOM || \
+    SYSCFG_G2 == SYSCFG_GROUP_CUSTOM
+#endif
+
+/* Exact stock-like replacement of G2.7 @ 0x4004AC04. */
+static void custom_g2_7(void)
+{
+    volatile uint8_t *state =
+        (volatile uint8_t *)(uintptr_t)STOCK_APP_STATE_BASE;
+    volatile const uint32_t *profile =
+        (volatile const uint32_t *)(uintptr_t)0x42E53A0CU;
+    volatile const uint32_t *job13_value =
+        (volatile const uint32_t *)(uintptr_t)
+            (STOCK_APP_STATE_BASE + 0x120U);
+    volatile const uint16_t *selector_2d_value =
+        (volatile const uint16_t *)(uintptr_t)
+            (STOCK_APP_STATE_BASE + 0x108U);
+    uint8_t value = state[0x105U];
+    uint32_t selector_changed = 0U;
+
+    if (state[0xBC9U] != value) {
+        state[0xBC9U] = value;
+        fpga_protocol_write_u8(0x2BU, value == 12U ? 11U : value);
+        selector_changed = 1U;
+    }
+
+    custom_syscfg_cached_job(9U, profile[1]);
+    custom_syscfg_cached_job(11U, profile[3]);
+    custom_syscfg_cached_job(13U, *job13_value);
+    custom_syscfg_commit_if_dirty(0xB6U);
+
+    fpga_protocol_write_u16_be(0x2DU, *selector_2d_value);
+
+    if (selector_changed != 0U)
+        timer_avs_delay_units(60U);
+}
+#endif
+
+#if SYSCFG_G2_12 == SYSCFG_GROUP_CUSTOM || \
+    SYSCFG_G2 == SYSCFG_GROUP_CUSTOM
+/* Exact stock-like replacement of G2.12 @ 0x4004AA24. */
+static void custom_g2_12(void)
+{
+    volatile uint8_t *state =
+        (volatile uint8_t *)(uintptr_t)STOCK_APP_STATE_BASE;
+    uint8_t value = state[0x100U];
+
+    if (state[0xBCAU] == value)
+        return;
+
+    state[0xBCAU] = value;
+    fpga_protocol_write_u8(0x2EU, value);
+    timer_avs_delay_units(50U);
+}
+#endif
+
+#if SYSCFG_G3_6 == SYSCFG_GROUP_CUSTOM || \
+    SYSCFG_G3 == SYSCFG_GROUP_CUSTOM
+static int16_t custom_g3_clamp_parameter(int16_t value,
+                                         uint16_t limit,
+                                         uint16_t range,
+                                         uint8_t doubled)
+{
+    int32_t minimum = (int32_t)limit;
+    int32_t maximum;
+    int32_t current = value;
+
+    if (doubled != 0U)
+        minimum *= 2;
+
+    maximum = (int32_t)range - minimum;
+
+    if (current > maximum)
+        current = maximum;
+    else if (current < minimum)
+        current = minimum;
+
+    return (int16_t)current;
+}
+
+/* Exact stock-like replacement of G3.6 @ 0x400634F0. */
+static void custom_g3_6(void)
+{
+    volatile uint8_t *state8 =
+        (volatile uint8_t *)(uintptr_t)STOCK_APP_STATE_BASE;
+    volatile uint16_t *state16 =
+        (volatile uint16_t *)(uintptr_t)STOCK_APP_STATE_BASE;
+    volatile uint32_t *state32 =
+        (volatile uint32_t *)(uintptr_t)STOCK_APP_STATE_BASE;
+    volatile const uint32_t *profile =
+        (volatile const uint32_t *)(uintptr_t)0x42E53A0CU;
+    uint32_t job14;
+    uint32_t job15;
+    uint32_t job16;
+    uint32_t job17;
+    uint32_t job18;
+    uint32_t job19;
+    uint32_t index;
+    int16_t parameter;
+
+    parameter = (int16_t)state16[0x27EU / 2U];
+    parameter = custom_g3_clamp_parameter(
+        parameter,
+        state16[0x1AEU / 2U],
+        state16[0x00AU / 2U],
+        state8[0x2AAU]);
+    state16[0x27EU / 2U] = (uint16_t)parameter;
+
+    if (state8[0x27CU] == 0U) {
+        job14 = state32[0x0E0U / 4U];
+        job15 = state32[0x060U / 4U];
+        index = state8[0x041U];
+        job17 = state32[(0x1C4U / 4U) + index];
+        job18 = profile[0x18U / 4U];
+        job19 = profile[0x38U / 4U];
+    } else {
+        job14 = state32[0x1A0U / 4U];
+        job15 = state32[0x120U / 4U];
+        index = state8[0x105U];
+        job17 = state32[(0x1C4U / 4U) + index];
+        job18 = profile[0x14U / 4U];
+        job19 = profile[0x34U / 4U];
+    }
+
+    job16 = (uint32_t)(int32_t)parameter;
+
+    custom_syscfg_cached_job(14U, job14);
+    custom_syscfg_cached_job(15U, job15);
+    custom_syscfg_cached_job(16U, job16);
+    custom_syscfg_cached_job(17U, job17);
+    custom_syscfg_cached_job(18U, job18);
+    custom_syscfg_cached_job(19U, job19);
+    custom_syscfg_commit_if_dirty(0xB8U);
+
+    if (state8[0x275U] != 0U && state8[0x274U] != 0U) {
+        fpga_protocol_write_u8(0x17U, state8[0x280U]);
+    } else {
+        state8[0x03BU] = 1U;
+        fpga_protocol_write_u8(0x61U, 1U);
+        fpga_protocol_write_u8(0x17U, 0U);
+        state8[0x03BU] = 0U;
+        fpga_protocol_write_u8(0x61U, 0U);
+    }
+}
+#endif
+
 void __attribute__((noinline)) dposlab_sysconfig_group_dispatch(void)
 {
 #if SYSCFG_G1 == SYSCFG_GROUP_STOCK
@@ -516,11 +715,106 @@ void __attribute__((noinline)) dposlab_sysconfig_group_dispatch(void)
     custom_sc1_5_3();
     custom_sc1_5_4();
 #endif
+#elif SYSCFG_G1 == SYSCFG_GROUP_CUSTOM
+    /*
+     * Consolidated HW-confirmed minimal SC1 profile.
+     *
+     * Equivalent detailed matrix:
+     *   SC1.1 = SKIP
+     *   SC1.2 = CUSTOM
+     *   SC1.3 = CUSTOM
+     *   SC1.4 = SKIP
+     *   SC1.5 = CUSTOM (1..4 custom, 5 skipped)
+     *
+     * Keep this order identical to the decomposed stock SC1 dispatcher.
+     */
+    custom_sc1_2();
+    custom_sc1_3();
+    custom_sc1_5_1();
+    custom_sc1_5_2();
+    custom_sc1_5_3();
+    custom_sc1_5_4();
 #endif
 #if SYSCFG_G2 == SYSCFG_GROUP_STOCK
-    call_stock(0x4004A510U);
+    /*
+     * Stock SysConfig G2 @ 0x4004A510 decomposed in exact call order.
+     * G2.12 is a stock tail-call, but is an ordinary final matrix step here.
+     */
+#if SYSCFG_G2_1 == SYSCFG_GROUP_STOCK
+    call_stock(0x4004A7C4U);
+#endif
+#if SYSCFG_G2_2 == SYSCFG_GROUP_STOCK
+    call_stock(0x4004A608U);
+#endif
+#if SYSCFG_G2_3 == SYSCFG_GROUP_STOCK
+    call_stock(0x4004C544U);
+#endif
+#if SYSCFG_G2_4 == SYSCFG_GROUP_STOCK
+    call_stock(0x4004AA04U);
+#endif
+#if SYSCFG_G2_5 == SYSCFG_GROUP_STOCK
+    call_stock(0x4004AA70U);
+#endif
+#if SYSCFG_G2_6 == SYSCFG_GROUP_STOCK
+    call_stock(0x4004AAC0U);
+#endif
+#if SYSCFG_G2_7 == SYSCFG_GROUP_STOCK
+    call_stock(0x4004AC04U);
+#elif SYSCFG_G2_7 == SYSCFG_GROUP_CUSTOM
+    custom_g2_7();
+#endif
+#if SYSCFG_G2_8 == SYSCFG_GROUP_STOCK
+    call_stock(0x4004AB60U);
+#endif
+#if SYSCFG_G2_9 == SYSCFG_GROUP_STOCK
+    call_stock(0x4004AB84U);
+#endif
+#if SYSCFG_G2_10 == SYSCFG_GROUP_STOCK
+    call_stock(0x4004ACA4U);
+#endif
+#if SYSCFG_G2_11 == SYSCFG_GROUP_STOCK
+    call_stock(0x4004ABA8U);
+#endif
+#if SYSCFG_G2_12 == SYSCFG_GROUP_STOCK
+    call_stock(0x4004AA24U);
+#elif SYSCFG_G2_12 == SYSCFG_GROUP_CUSTOM
+    custom_g2_12();
+#endif
+#elif SYSCFG_G2 == SYSCFG_GROUP_CUSTOM
+    /* HW-confirmed minimal G2: B6/B7, relay sequence, and G3 prerequisite. */
+    custom_g2_7();
+    custom_g2_12();
 #endif
 #if SYSCFG_G3 == SYSCFG_GROUP_STOCK
-    call_stock(0x40063328U);
+    /*
+     * Stock SysConfig G3 @ 0x40063328 decomposed in exact call order.
+     * G3.7 is a stock tail-call, represented as a normal final matrix step.
+     */
+#if SYSCFG_G3_1 == SYSCFG_GROUP_STOCK
+    call_stock(0x400635D0U);
+#endif
+#if SYSCFG_G3_2 == SYSCFG_GROUP_STOCK
+    call_stock(0x40063354U);
+#endif
+#if SYSCFG_G3_3 == SYSCFG_GROUP_STOCK
+    call_stock(0x4006366CU);
+#endif
+#if SYSCFG_G3_4 == SYSCFG_GROUP_STOCK
+    call_stock(0x40063430U);
+#endif
+#if SYSCFG_G3_5 == SYSCFG_GROUP_STOCK
+    call_stock(0x40063460U);
+#endif
+#if SYSCFG_G3_6 == SYSCFG_GROUP_STOCK
+    call_stock(0x400634F0U);
+#elif SYSCFG_G3_6 == SYSCFG_GROUP_CUSTOM
+    custom_g3_6();
+#endif
+#if SYSCFG_G3_7 == SYSCFG_GROUP_STOCK
+    call_stock(0x4003FAE8U);
+#endif
+#elif SYSCFG_G3 == SYSCFG_GROUP_CUSTOM
+    /* HW-confirmed minimal G3 for the current fixed acquisition profile. */
+    custom_g3_6();
 #endif
 }
