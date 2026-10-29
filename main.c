@@ -100,7 +100,8 @@ int main(void)
     console_present();
 
     boot_targets_probe(&context);
-    touch_available = gt911_init(&touch_info) == 0;
+    touch_available = gt911_init() == 0 &&
+                      gt911_probe(&touch_info) == 0;
     selected = boot_menu_run(&context, touch_available);
 
     if (selected == BOOT_TARGET_NONE) {
