@@ -27,6 +27,13 @@ HORIZONTAL_H6 ?= 0
 SYSCFG_G1 ?= 0
 SYSCFG_G2 ?= 0
 SYSCFG_G3 ?= 0
+SYSCFG_G3_1 ?= 0
+SYSCFG_G3_2 ?= 0
+SYSCFG_G3_3 ?= 0
+SYSCFG_G3_4 ?= 0
+SYSCFG_G3_5 ?= 0
+SYSCFG_G3_6 ?= 0
+SYSCFG_G3_7 ?= 0
 SYSCFG_G2_1 ?= 0
 SYSCFG_G2_2 ?= 0
 SYSCFG_G2_3 ?= 0
@@ -45,7 +52,7 @@ SYSCFG_SC1_3 ?= 0
 SYSCFG_SC1_4 ?= 0
 SYSCFG_SC1_5 ?= 0
 INCLUDES := -I$(ROOT)/arch/r11 -I$(ROOT)/board/dpos350p -I$(ROOT)/drivers -I$(ROOT)/ui -I$(ROOT)/loader
-CFLAGS := -O2 -mcpu=cortex-a7 -marm -mno-unaligned-access -ffreestanding -fno-builtin -fno-common -fno-stack-protector -fno-unwind-tables -fno-asynchronous-unwind-tables -nostdlib -Wall -Wextra -Werror -DDPOSLAB_MODE=$(DPOSLAB_MODE) -DDPOSLAB_ACQ_CHECKPOINT=$(DPOSLAB_ACQ_CHECKPOINT) -DDPOSLAB_PRIMITIVE_TEST=$(DPOSLAB_PRIMITIVE_TEST) -DSMEC_S1=$(SMEC_S1) -DSMEC_S2=$(SMEC_S2) -DSMEC_S3=$(SMEC_S3) -DSMEC_S4=$(SMEC_S4) -DFPGA_F1=$(FPGA_F1) -DFPGA_F2=$(FPGA_F2) -DFPGA_F3=$(FPGA_F3) -DFPGA_F4=$(FPGA_F4) -DHORIZONTAL_H1=$(HORIZONTAL_H1) -DHORIZONTAL_H2=$(HORIZONTAL_H2) -DHORIZONTAL_H3=$(HORIZONTAL_H3) -DHORIZONTAL_H4=$(HORIZONTAL_H4) -DHORIZONTAL_H5=$(HORIZONTAL_H5) -DHORIZONTAL_H6=$(HORIZONTAL_H6) -DSYSCFG_G1=$(SYSCFG_G1) -DSYSCFG_G2=$(SYSCFG_G2) -DSYSCFG_G3=$(SYSCFG_G3) -DSYSCFG_G2_1=$(SYSCFG_G2_1) -DSYSCFG_G2_2=$(SYSCFG_G2_2) -DSYSCFG_G2_3=$(SYSCFG_G2_3) -DSYSCFG_G2_4=$(SYSCFG_G2_4) -DSYSCFG_G2_5=$(SYSCFG_G2_5) -DSYSCFG_G2_6=$(SYSCFG_G2_6) -DSYSCFG_G2_7=$(SYSCFG_G2_7) -DSYSCFG_G2_8=$(SYSCFG_G2_8) -DSYSCFG_G2_9=$(SYSCFG_G2_9) -DSYSCFG_G2_10=$(SYSCFG_G2_10) -DSYSCFG_G2_11=$(SYSCFG_G2_11) -DSYSCFG_G2_12=$(SYSCFG_G2_12) -DSYSCFG_SC1_1=$(SYSCFG_SC1_1) -DSYSCFG_SC1_2=$(SYSCFG_SC1_2) -DSYSCFG_SC1_3=$(SYSCFG_SC1_3) -DSYSCFG_SC1_4=$(SYSCFG_SC1_4) -DSYSCFG_SC1_5=$(SYSCFG_SC1_5) $(INCLUDES)
+CFLAGS := -O2 -mcpu=cortex-a7 -marm -mno-unaligned-access -ffreestanding -fno-builtin -fno-common -fno-stack-protector -fno-unwind-tables -fno-asynchronous-unwind-tables -nostdlib -Wall -Wextra -Werror -DDPOSLAB_MODE=$(DPOSLAB_MODE) -DDPOSLAB_ACQ_CHECKPOINT=$(DPOSLAB_ACQ_CHECKPOINT) -DDPOSLAB_PRIMITIVE_TEST=$(DPOSLAB_PRIMITIVE_TEST) -DSMEC_S1=$(SMEC_S1) -DSMEC_S2=$(SMEC_S2) -DSMEC_S3=$(SMEC_S3) -DSMEC_S4=$(SMEC_S4) -DFPGA_F1=$(FPGA_F1) -DFPGA_F2=$(FPGA_F2) -DFPGA_F3=$(FPGA_F3) -DFPGA_F4=$(FPGA_F4) -DHORIZONTAL_H1=$(HORIZONTAL_H1) -DHORIZONTAL_H2=$(HORIZONTAL_H2) -DHORIZONTAL_H3=$(HORIZONTAL_H3) -DHORIZONTAL_H4=$(HORIZONTAL_H4) -DHORIZONTAL_H5=$(HORIZONTAL_H5) -DHORIZONTAL_H6=$(HORIZONTAL_H6) -DSYSCFG_G1=$(SYSCFG_G1) -DSYSCFG_G2=$(SYSCFG_G2) -DSYSCFG_G3=$(SYSCFG_G3) -DSYSCFG_G3_1=$(SYSCFG_G3_1) -DSYSCFG_G3_2=$(SYSCFG_G3_2) -DSYSCFG_G3_3=$(SYSCFG_G3_3) -DSYSCFG_G3_4=$(SYSCFG_G3_4) -DSYSCFG_G3_5=$(SYSCFG_G3_5) -DSYSCFG_G3_6=$(SYSCFG_G3_6) -DSYSCFG_G3_7=$(SYSCFG_G3_7) -DSYSCFG_G2_1=$(SYSCFG_G2_1) -DSYSCFG_G2_2=$(SYSCFG_G2_2) -DSYSCFG_G2_3=$(SYSCFG_G2_3) -DSYSCFG_G2_4=$(SYSCFG_G2_4) -DSYSCFG_G2_5=$(SYSCFG_G2_5) -DSYSCFG_G2_6=$(SYSCFG_G2_6) -DSYSCFG_G2_7=$(SYSCFG_G2_7) -DSYSCFG_G2_8=$(SYSCFG_G2_8) -DSYSCFG_G2_9=$(SYSCFG_G2_9) -DSYSCFG_G2_10=$(SYSCFG_G2_10) -DSYSCFG_G2_11=$(SYSCFG_G2_11) -DSYSCFG_G2_12=$(SYSCFG_G2_12) -DSYSCFG_SC1_1=$(SYSCFG_SC1_1) -DSYSCFG_SC1_2=$(SYSCFG_SC1_2) -DSYSCFG_SC1_3=$(SYSCFG_SC1_3) -DSYSCFG_SC1_4=$(SYSCFG_SC1_4) -DSYSCFG_SC1_5=$(SYSCFG_SC1_5) $(INCLUDES)
 SOURCES_C := sysconfig_group_matrix.c     horizontal_matrix.c         acq_prereq_probe.c     stock_primitive_smec_test.c     main.c     stock_api.c     runtime_patch.c     runtime_snapshot.c     runtime_trace.c     runtime_export.c     $(ROOT)/arch/r11/cache.c     $(ROOT)/drivers/gpio.c     $(ROOT)/drivers/display.c     $(ROOT)/drivers/fpga_bus.c     $(ROOT)/drivers/fpga_protocol.c     $(ROOT)/drivers/smec.c     $(ROOT)/ui/font8x8.c     $(ROOT)/ui/console.c     custom_fpga_start.c     $(ROOT)/arch/r11/timer.c     $(ROOT)/drivers/ms5351.c     $(ROOT)/drivers/r11_csi.c     $(ROOT)/drivers/acq.c     smec_matrix.c     csi_bank0_probe.c
 SOURCES_S := start.S stock_jump.S runtime_hook.S
 OBJECTS := $(patsubst %.c,$(BUILD)/%.o,$(SOURCES_C)) $(patsubst %.S,$(BUILD)/%.o,$(SOURCES_S))
