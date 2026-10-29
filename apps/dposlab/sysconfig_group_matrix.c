@@ -489,7 +489,8 @@ static void custom_sc1_3(void)
 
 #if SYSCFG_G2_7 == SYSCFG_GROUP_CUSTOM || \
     SYSCFG_G2 == SYSCFG_GROUP_CUSTOM || \
-    SYSCFG_G3_6 == SYSCFG_GROUP_CUSTOM
+    SYSCFG_G3_6 == SYSCFG_GROUP_CUSTOM || \
+    SYSCFG_G3 == SYSCFG_GROUP_CUSTOM
 /*
  * Cached stock-equivalent SysConfig job update.
  *
@@ -586,7 +587,8 @@ static void custom_g2_12(void)
 }
 #endif
 
-#if SYSCFG_G3_6 == SYSCFG_GROUP_CUSTOM
+#if SYSCFG_G3_6 == SYSCFG_GROUP_CUSTOM || \
+    SYSCFG_G3 == SYSCFG_GROUP_CUSTOM
 static int16_t custom_g3_clamp_parameter(int16_t value,
                                          uint16_t limit,
                                          uint16_t range,
@@ -811,5 +813,8 @@ void __attribute__((noinline)) dposlab_sysconfig_group_dispatch(void)
 #if SYSCFG_G3_7 == SYSCFG_GROUP_STOCK
     call_stock(0x4003FAE8U);
 #endif
+#elif SYSCFG_G3 == SYSCFG_GROUP_CUSTOM
+    /* HW-confirmed minimal G3 for the current fixed acquisition profile. */
+    custom_g3_6();
 #endif
 }
