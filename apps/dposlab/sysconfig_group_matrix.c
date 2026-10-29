@@ -24,7 +24,8 @@ volatile uint32_t g_dposlab_sc1_5_1_profile_error
 volatile uint32_t g_dposlab_sc1_5_3_profile_error
     __attribute__((section(".data"), used));
 
-#if SYSCFG_SC1_5 == SYSCFG_GROUP_STOCK
+#if SYSCFG_G1 == SYSCFG_GROUP_STOCK && \
+    SYSCFG_SC1_5 == SYSCFG_GROUP_STOCK
 static void capture_sc1_5_3_inputs(void)
 {
     volatile const uint8_t *state8 =
@@ -48,7 +49,8 @@ static void __attribute__((unused)) call_stock(uint32_t address)
     ((stock_void_fn_t)(uintptr_t)address)();
 }
 
-#if SYSCFG_SC1_3 == SYSCFG_GROUP_STOCK
+#if SYSCFG_G1 == SYSCFG_GROUP_STOCK && \
+    SYSCFG_SC1_3 == SYSCFG_GROUP_STOCK
 static void capture_and_call_stock_sc1_3(void)
 {
     volatile const uint8_t *state8 =
@@ -108,7 +110,8 @@ static void capture_and_call_stock_sc1_3(void)
 }
 #endif
 
-#if SYSCFG_SC1_5 == SYSCFG_GROUP_STOCK
+#if SYSCFG_G1 == SYSCFG_GROUP_STOCK && \
+    SYSCFG_SC1_5 == SYSCFG_GROUP_STOCK
 static void capture_and_call_stock_sc1_5_1(void)
 {
     volatile const uint8_t *state8 =
@@ -138,7 +141,8 @@ static void capture_and_call_stock_sc1_5_1(void)
 
 #define STOCK_APP_STATE_BASE 0x40544E68U
 
-#if SYSCFG_SC1_2 == SYSCFG_GROUP_CUSTOM
+#if SYSCFG_SC1_2 == SYSCFG_GROUP_CUSTOM || \
+    SYSCFG_G1 == SYSCFG_GROUP_CUSTOM
 /* Exact stock-like replacement of SC1.2 @ 0x4003A908. */
 static void custom_sc1_2(void)
 {
@@ -175,7 +179,8 @@ static void custom_sc1_2(void)
 }
 #endif
 
-#if SYSCFG_SC1_5 == SYSCFG_GROUP_CUSTOM
+#if SYSCFG_SC1_5 == SYSCFG_GROUP_CUSTOM || \
+    SYSCFG_G1 == SYSCFG_GROUP_CUSTOM
 static void custom_sc1_5_2_write_byte(volatile uint8_t *state,
                                      uint32_t source_offset,
                                      uint32_t shadow_offset,
@@ -244,7 +249,8 @@ static void custom_sc1_5_2(void)
 }
 #endif
 
-#if SYSCFG_SC1_5 == SYSCFG_GROUP_CUSTOM
+#if SYSCFG_SC1_5 == SYSCFG_GROUP_CUSTOM || \
+    SYSCFG_G1 == SYSCFG_GROUP_CUSTOM
 /* Exact stock-like replacement of SC1.5.4 @ 0x40063CD0. */
 static void custom_sc1_5_4(void)
 {
@@ -282,7 +288,8 @@ static void custom_sc1_5_4(void)
 }
 #endif
 
-#if SYSCFG_SC1_5 == SYSCFG_GROUP_CUSTOM
+#if SYSCFG_SC1_5 == SYSCFG_GROUP_CUSTOM || \
+    SYSCFG_G1 == SYSCFG_GROUP_CUSTOM
 /*
  * Minimal stock-like replacement of SC1.5.3 @ 0x40063F04.
  *
@@ -347,7 +354,8 @@ static void custom_sc1_5_3(void)
 }
 #endif
 
-#if SYSCFG_SC1_5 == SYSCFG_GROUP_CUSTOM
+#if SYSCFG_SC1_5 == SYSCFG_GROUP_CUSTOM || \
+    SYSCFG_G1 == SYSCFG_GROUP_CUSTOM
 /*
  * Minimal stock-like replacement of SC1.5.1 @ 0x4003F2F4.
  *
@@ -413,7 +421,8 @@ static void custom_sc1_5_1(void)
 }
 #endif
 
-#if SYSCFG_SC1_3 == SYSCFG_GROUP_CUSTOM
+#if SYSCFG_SC1_3 == SYSCFG_GROUP_CUSTOM || \
+    SYSCFG_G1 == SYSCFG_GROUP_CUSTOM
 /*
  * SC1.3 profile smoke test T6.
  *
@@ -516,9 +525,67 @@ void __attribute__((noinline)) dposlab_sysconfig_group_dispatch(void)
     custom_sc1_5_3();
     custom_sc1_5_4();
 #endif
+#elif SYSCFG_G1 == SYSCFG_GROUP_CUSTOM
+    /*
+     * Consolidated HW-confirmed minimal SC1 profile.
+     *
+     * Equivalent detailed matrix:
+     *   SC1.1 = SKIP
+     *   SC1.2 = CUSTOM
+     *   SC1.3 = CUSTOM
+     *   SC1.4 = SKIP
+     *   SC1.5 = CUSTOM (1..4 custom, 5 skipped)
+     *
+     * Keep this order identical to the decomposed stock SC1 dispatcher.
+     */
+    custom_sc1_2();
+    custom_sc1_3();
+    custom_sc1_5_1();
+    custom_sc1_5_2();
+    custom_sc1_5_3();
+    custom_sc1_5_4();
 #endif
 #if SYSCFG_G2 == SYSCFG_GROUP_STOCK
-    call_stock(0x4004A510U);
+    /*
+     * Stock SysConfig G2 @ 0x4004A510 decomposed in exact call order.
+     * G2.12 is a stock tail-call, but is an ordinary final matrix step here.
+     */
+#if SYSCFG_G2_1 == SYSCFG_GROUP_STOCK
+    call_stock(0x4004A7C4U);
+#endif
+#if SYSCFG_G2_2 == SYSCFG_GROUP_STOCK
+    call_stock(0x4004A608U);
+#endif
+#if SYSCFG_G2_3 == SYSCFG_GROUP_STOCK
+    call_stock(0x4004C544U);
+#endif
+#if SYSCFG_G2_4 == SYSCFG_GROUP_STOCK
+    call_stock(0x4004AA04U);
+#endif
+#if SYSCFG_G2_5 == SYSCFG_GROUP_STOCK
+    call_stock(0x4004AA70U);
+#endif
+#if SYSCFG_G2_6 == SYSCFG_GROUP_STOCK
+    call_stock(0x4004AAC0U);
+#endif
+#if SYSCFG_G2_7 == SYSCFG_GROUP_STOCK
+    call_stock(0x4004AC04U);
+#endif
+#if SYSCFG_G2_8 == SYSCFG_GROUP_STOCK
+    call_stock(0x4004AB60U);
+#endif
+#if SYSCFG_G2_9 == SYSCFG_GROUP_STOCK
+    call_stock(0x4004AB84U);
+#endif
+#if SYSCFG_G2_10 == SYSCFG_GROUP_STOCK
+    call_stock(0x4004ACA4U);
+#endif
+#if SYSCFG_G2_11 == SYSCFG_GROUP_STOCK
+    call_stock(0x4004ABA8U);
+#endif
+#if SYSCFG_G2_12 == SYSCFG_GROUP_STOCK
+    call_stock(0x4004AA24U);
+#endif
 #endif
 #if SYSCFG_G3 == SYSCFG_GROUP_STOCK
     call_stock(0x40063328U);
