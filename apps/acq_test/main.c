@@ -7,6 +7,8 @@
 #include "profile.h"
 #include "console.h"
 #include "timer.h"
+#include "cache.h"
+#include "mmu.h"
 
 #define WHITE 0xFFFFU
 #define BLACK 0x0000U
@@ -154,6 +156,9 @@ int main(void)
     int capture_called;
     int capture_ok;
 
+    /* Stage 2 hands off with MMU/caches disabled. Own the app runtime. */
+    mmu_enable_identity_dram_cache(0);
+
     display_init();
     console_init(WHITE, BLACK, 2U);
     timer_init();
@@ -199,6 +204,10 @@ int main(void)
         buffer_fill(capture_buffer, CAPTURE_SIZE, CAPTURE_FILL);
         hash_before = buffer_hash(capture_buffer, CAPTURE_SIZE);
 
+        /* CPU -> DMA ownership: publish the sentinel and remove dirty lines. */
+        cache_clean_range((uintptr_t)capture_buffer, CAPTURE_SIZE);
+        cache_dsb();
+
         capture_ok = acq_capture(
             (uintptr_t)capture_buffer,
             CAPTURE_POSITION,
@@ -206,7 +215,10 @@ int main(void)
             CAPTURE_TIMEOUT_ITERATIONS,
             &capture);
 
-        __asm__ volatile ("dmb sy" ::: "memory");
+        /* DMA -> CPU ownership: discard any cached pre-capture contents. */
+        cache_invalidate_range((uintptr_t)capture_buffer, CAPTURE_SIZE);
+        cache_dsb();
+
         hash_after = buffer_hash(capture_buffer, CAPTURE_SIZE);
         changed_bytes = buffer_count_changed(
             capture_buffer,
