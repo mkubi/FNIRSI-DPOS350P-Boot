@@ -23,7 +23,8 @@ typedef struct {
     uint8_t data_ready;
 } gt911_debug_sample_t;
 
-int gt911_init(gt911_info_t *info);
+int gt911_init(void);
+int gt911_probe(gt911_info_t *info);
 int gt911_poll(gt911_touch_t *touch);
 
 /* Diagnostic read: exposes status and INT without hiding useful evidence. */

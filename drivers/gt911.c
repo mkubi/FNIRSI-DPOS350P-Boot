@@ -175,51 +175,60 @@ static int gt911_read_reg(uint16_t reg, uint8_t *data, unsigned length)
     return 0;
 }
 
-int gt911_init(gt911_info_t *info)
+int gt911_init(void)
+{
+    /* Stock 0x40049788: software-I2C pins are outputs and idle high. */
+    gpio_set_output(GT_SDA_PORT, GT_SDA_PIN);
+    gpio_set_output(GT_SCL_PORT, GT_SCL_PIN);
+    gpio_write(GT_SDA_PORT, GT_SDA_PIN, 1);
+    gpio_write(GT_SCL_PORT, GT_SCL_PIN, 1);
+
+    /* Stock 0x400497D4: INT and RESET initially idle high as outputs. */
+    gpio_set_output(GT_INT_PORT, GT_INT_PIN);
+    gpio_set_output(GT_RST_PORT, GT_RST_PIN);
+    gpio_write(GT_INT_PORT, GT_INT_PIN, 1);
+    gpio_write(GT_RST_PORT, GT_RST_PIN, 1);
+
+    /* Stock 0x40049834 reset/address-selection sequence. */
+    gpio_write(GT_INT_PORT, GT_INT_PIN, 0);
+    gpio_write(GT_RST_PORT, GT_RST_PIN, 0);
+    timer_avs_delay_units(40U);
+
+    gpio_write(GT_INT_PORT, GT_INT_PIN, 1);
+    gpio_write(GT_RST_PORT, GT_RST_PIN, 0);
+    timer_avs_delay_units(40U);
+
+    gpio_write(GT_RST_PORT, GT_RST_PIN, 0);
+    timer_avs_delay_units(40U);
+
+    gpio_write(GT_RST_PORT, GT_RST_PIN, 1);
+
+    /* Stock 0x40049820 releases RESET, not INT, to input mode. */
+    gpio_set_input(GT_RST_PORT, GT_RST_PIN);
+    timer_avs_delay_units(20U);
+
+    /* INT deliberately remains an output driven high, matching stock. */
+    return 0;
+}
+
+int gt911_probe(gt911_info_t *info)
 {
     uint8_t product_id[4];
     unsigned i;
 
     if (info) {
-        for (i = 0U; i < 5U; i++)
+        for (i = 0U; i < 5U; ++i)
             info->product_id[i] = 0;
 
         info->address = GT911_I2C_ADDRESS;
         info->available = 0U;
     }
 
-    gpio_set_output(GT_SDA_PORT, GT_SDA_PIN);
-    gpio_set_output(GT_SCL_PORT, GT_SCL_PIN);
-    gpio_write(GT_SDA_PORT, GT_SDA_PIN, 1);
-    gpio_write(GT_SCL_PORT, GT_SCL_PIN, 1);
-
-    gpio_set_output(GT_INT_PORT, GT_INT_PIN);
-    gpio_set_output(GT_RST_PORT, GT_RST_PIN);
-
-    gpio_write(GT_INT_PORT, GT_INT_PIN, 0);
-    gpio_write(GT_RST_PORT, GT_RST_PIN, 0);
-
-    timer_delay_ms(GT911_RESET_LOW_MS);
-
-    gpio_write(GT_INT_PORT, GT_INT_PIN, 1);
-
-    timer_delay_ms(GT911_INT_SETUP_MS);
-
-    gpio_write(GT_RST_PORT, GT_RST_PIN, 1);
-
-    timer_delay_ms(GT911_POST_RESET_MS);
-
-    /*
-     * Preserve the working prototype behavior:
-     * no additional delay after changing INT to input.
-     */
-    gpio_set_input(GT_INT_PORT, GT_INT_PIN);
-
     if (gt911_read_reg(GT911_REG_PRODUCT_ID, product_id, 4U))
         return -1;
 
     if (info) {
-        for (i = 0U; i < 4U; i++)
+        for (i = 0U; i < 4U; ++i)
             info->product_id[i] = (char)product_id[i];
 
         info->product_id[4] = 0;
