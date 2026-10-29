@@ -5,6 +5,7 @@
 #include "fpga_init.h"
 #include "smec.h"
 #include "profile.h"
+#include "frontend.h"
 #include "console.h"
 #include "timer.h"
 #include "cache.h"
@@ -144,6 +145,7 @@ int main(void)
     struct fpga_init_result hw;
     struct smec_init_result smec;
     struct profile_init_result profile;
+    struct frontend_init_result frontend;
     struct acq_capture_result capture;
     uint32_t hash_before;
     uint32_t hash_after;
@@ -153,6 +155,7 @@ int main(void)
     int fpga_ok;
     int smec_ok;
     int profile_ok;
+    int frontend_ok;
     int capture_called;
     int capture_ok;
 
@@ -175,6 +178,13 @@ int main(void)
     profile.completed_steps = 0U;
     profile.failed_step = 0U;
     profile.error = 0;
+    frontend.completed_steps = 0U;
+    frontend.failed_step = 0U;
+    frontend.last_job_result = 0U;
+    frontend.last_job_attempts = 0U;
+    frontend.last_job_error = 0;
+    frontend.success = 0;
+    frontend_ok = 0;
 
     fpga_ok = fpga_init(&hw);
     smec_ok = fpga_ok ? smec_init(&smec) : 0;
@@ -191,9 +201,19 @@ int main(void)
     console_present();
 
     profile_ok = smec_ok ? profile_init(&profile, profile_progress_screen) : 0;
-
-    capture_called = fpga_ok && smec_ok && profile_ok;
+    
+    frontend_ok = profile_ok
+        ? frontend_init_stock_default(&frontend)
+        : 0;
+    
+    capture_called =
+        fpga_ok &&
+        smec_ok &&
+        profile_ok &&
+        frontend_ok;
+    
     capture_ok = 0;
+
     hash_before = 0U;
     hash_after = 0U;
     changed_bytes = 0U;
@@ -237,6 +257,12 @@ int main(void)
     put_result("PROFILE PASS  ", profile_ok);
     console_puts("STEPS DONE    "); put_hex32(profile.completed_steps); console_putln("");
     console_puts("FAILED STEP   "); put_hex32(profile.failed_step); console_putln("");
+    put_result("FRONTEND PASS ", frontend_ok);
+    console_puts("FE STEPS      "); put_hex32(frontend.completed_steps); console_putln("");
+    console_puts("FE FAILED     "); put_hex32(frontend.failed_step); console_putln("");
+    console_puts("FE JOB RESULT "); put_hex32(frontend.last_job_result); console_putln("");
+    console_puts("FE ATTEMPTS   "); put_hex32(frontend.last_job_attempts); console_putln("");
+    console_puts("FE JOB ERROR  "); put_hex32((uint32_t)frontend.last_job_error); console_putln("");
     console_putln("");
 
     put_result("CAPTURE CALL  ", capture_called);
