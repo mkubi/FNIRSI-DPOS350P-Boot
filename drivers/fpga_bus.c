@@ -1,5 +1,5 @@
 #include "fpga_bus.h"
-#include "fpga_smec.h"
+#include "smec.h"
 
 #define PIO_BASE       0x01C20800u
 #define PE_CFG0        (*(volatile uint32_t *)(PIO_BASE + 0x90u))
@@ -641,7 +641,7 @@ static int smec_poll_bit0(uint8_t selector, uint32_t limit,
 }
 
 static int smec_submit_job(uint8_t index, uint32_t value,
-                           struct fpga_smec_init_result *result)
+                           struct smec_init_result *result)
 {
     uint32_t outer;
     uint16_t timing;
@@ -694,7 +694,7 @@ static int smec_submit_job(uint8_t index, uint32_t value,
 
 void fpga_bus_control_idle(void);
 
-int fpga_smec_init_baseline(struct fpga_smec_init_result *result)
+int fpga_smec_init_baseline(struct smec_init_result *result)
 {
     static const uint32_t values[7] = {
         20U, 64U, 64U, 1000U, 100U, 950U, 200U

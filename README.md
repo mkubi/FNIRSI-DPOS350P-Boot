@@ -25,7 +25,7 @@ The confirmed regression capture reaches:
 
 The production acquisition stack is layered as:
 
-    dpos_acq
+    acq
       -> fpga_protocol -> fpga_bus
       -> r11_csi
 

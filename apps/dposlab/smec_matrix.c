@@ -74,7 +74,7 @@ static void phase_s3(void)
 #endif
 }
 
-static int phase_s4(struct fpga_smec_init_result *r)
+static int phase_s4(struct smec_init_result *r)
 {
     (void)r;
 #if SMEC_S4 == SMEC_IMPL_STOCK || SMEC_S4 == SMEC_IMPL_EXACT
@@ -82,7 +82,7 @@ static int phase_s4(struct fpga_smec_init_result *r)
     return 1;
 #elif SMEC_S4 == SMEC_IMPL_CUSTOM
     /* Current custom jobs implementation includes its own verified preamble. */
-    return fpga_smec_init(r);
+    return smec_init(r);
 #elif SMEC_S4 == SMEC_IMPL_SKIP
     (void)r;
     return 1;
@@ -108,7 +108,7 @@ static void summarize_state(uint32_t *checksum, uint32_t *nonzero)
 
 void dposlab_smec_matrix_init(void)
 {
-    struct fpga_smec_init_result local;
+    struct smec_init_result local;
     volatile struct dposlab_smec_matrix_result *out = &dposlab_smec_matrix_result;
     int ok;
 

@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 #include "../../drivers/fpga_bus.h"
-#include "../../drivers/fpga_smec.h"
+#include "../../drivers/smec.h"
 
 #define SMEC_IMPL_STOCK   0
 #define SMEC_IMPL_CUSTOM  1
@@ -24,7 +24,7 @@
 #endif
 
 struct dposlab_smec_matrix_result {
-    struct fpga_smec_init_result custom;
+    struct smec_init_result custom;
     uint32_t state_checksum;
     uint32_t state_nonzero;
     uint8_t s1;
