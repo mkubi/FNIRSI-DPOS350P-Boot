@@ -3,7 +3,7 @@
 #include "custom_fpga_start.h"
 #include "../../drivers/fpga_bus.h"
 #include "../../drivers/r11_csi.h"
-#include "../../drivers/ms5351_stock.h"
+#include "../../drivers/ms5351.h"
 
 #define PE_CFG0        (*(volatile uint32_t *)0x01C20890U)
 #define PE_CFG1        (*(volatile uint32_t *)0x01C20894U)
@@ -79,14 +79,14 @@ static void phase_f3(void)
 #endif
 }
 
-static int phase_f4(struct ms5351_stock_result *clock)
+static int phase_f4(struct ms5351_init_result *clock)
 {
     (void)clock;
 #if FPGA_F4 == FPGA_IMPL_STOCK
     STOCK_F4_CLOCK_TAIL();
     return 1;
 #elif FPGA_F4 == FPGA_IMPL_CUSTOM
-    ms5351_stock_init_95m_10m(clock);
+    ms5351_init_95m_10m(clock);
     return clock->completed;
 #elif FPGA_F4 == FPGA_IMPL_SKIP
     (void)clock;
@@ -100,7 +100,7 @@ void dposlab_custom_fpga_start(void)
 {
     struct fpga_diag_result fpga;
     struct r11_csi_stock_parity_result parity;
-    struct ms5351_stock_result clock;
+    struct ms5351_init_result clock;
     volatile struct dposlab_custom_fpga_start_result *r =
         &dposlab_custom_fpga_start_result;
     int csi_ok;

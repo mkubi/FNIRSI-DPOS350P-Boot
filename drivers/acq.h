@@ -1,22 +1,22 @@
-#ifndef DPOS_ACQ_H
-#define DPOS_ACQ_H
+#ifndef ACQ_H
+#define ACQ_H
 
 #include <stdint.h>
 #include <stddef.h>
 
-struct dpos_acq_prepare_result {
+struct acq_prepare_result {
     uint8_t status_before;
     uint8_t status_after;
     uint32_t polls;
     int ready;
 };
 
-int dpos_acq_prepare(
+int acq_prepare(
     uint8_t mode,
     uint32_t max_polls,
-    struct dpos_acq_prepare_result *result);
+    struct acq_prepare_result *result);
 
-struct dpos_acq_capture_result {
+struct acq_capture_result {
     uint32_t status_before;
     uint32_t status_after;
     uint32_t mode;
@@ -32,11 +32,11 @@ struct dpos_acq_capture_result {
  * The public interface is bank/position agnostic. The current receiver
  * geometry and stream quantity are the HW-confirmed DPOS350P profile.
  */
-int dpos_acq_capture(
+int acq_capture(
     uintptr_t buffer,
     uint16_t position,
     uint8_t bank,
     uint32_t timeout_iterations,
-    struct dpos_acq_capture_result *result);
+    struct acq_capture_result *result);
 
 #endif

@@ -1,4 +1,4 @@
-#include "fpga_smec.h"
+#include "smec.h"
 #include "fpga_bus.h"
 #include "fpga_protocol.h"
 
@@ -26,7 +26,7 @@ static int poll_bit0(uint8_t selector, uint32_t limit,
 }
 
 static int submit_job(uint8_t index, uint32_t value,
-                      struct fpga_smec_init_result *result)
+                      struct smec_init_result *result)
 {
     uint32_t outer;
     uint16_t timing;
@@ -72,7 +72,7 @@ static int submit_job(uint8_t index, uint32_t value,
     return 0;
 }
 
-int fpga_smec_init(struct fpga_smec_init_result *result)
+int smec_init(struct smec_init_result *result)
 {
     static const uint32_t values[7] = {
         20U, 64U, 64U, 1000U, 100U, 950U, 200U

@@ -1,9 +1,9 @@
-#include "dpos_hw.h"
+#include "fpga_init.h"
 #include "fpga_bus.h"
-#include "ms5351_stock.h"
+#include "ms5351.h"
 #include "r11_csi.h"
 
-#define DPOS_HW_CAPTURE_BUFFER 0x42DF76D4U
+#define FPGA_INIT_CAPTURE_BUFFER 0x42DF76D4U
 #define FPGA_ID_MAGIC          0xA5A55A5AU
 
 static uint32_t select_id(const struct fpga_diag_result *id)
@@ -13,14 +13,14 @@ static uint32_t select_id(const struct fpga_diag_result *id)
     return id->id_word;
 }
 
-int dpos_hw_init(struct dpos_hw_init_result *result)
+int fpga_init(struct fpga_init_result *result)
 {
-    struct dpos_hw_init_result local;
-    struct dpos_hw_init_result *out = result ? result : &local;
+    struct fpga_init_result local;
+    struct fpga_init_result *out = result ? result : &local;
     struct fpga_diag_result before;
     struct fpga_diag_result after;
     struct r11_csi_stock_parity_result csi;
-    struct ms5351_stock_result clock;
+    struct ms5351_init_result clock;
 
     out->fpga_id_before = 0U;
     out->fpga_id_after = 0U;
@@ -62,13 +62,13 @@ int dpos_hw_init(struct dpos_hw_init_result *result)
         return 0;
 
     out->csi_ready = r11_csi_stock_parity_init(
-        DPOS_HW_CAPTURE_BUFFER, &csi);
+        FPGA_INIT_CAPTURE_BUFFER, &csi);
 
     /* F2 is deliberately omitted in the confirmed minimal configuration. */
     fpga_bus_safe_idle();
 
     if (out->csi_ready) {
-        ms5351_stock_init_95m_10m(&clock);
+        ms5351_init_95m_10m(&clock);
         out->clocks_ready = clock.completed;
         out->clock_writes = clock.writes;
     }

@@ -25,7 +25,7 @@ The normal boot path no longer requires FEL/XFEL. FEL remains the recovery and d
 
 - hardware-confirmed zero-stock prerequisite/acquisition chain after the
   DPOSLAB checkpoint handoff
-- production acquisition API: `dpos_acq_prepare()` and `dpos_acq_capture()`
+- production acquisition API: `acq_prepare()` and `acq_capture()`
 - FPGA transport split into `fpga_bus`, `fpga_protocol` and `fpga_smec`
 - SoC CSI access remains isolated in `r11_csi`
 - confirmed READY fingerprint: FPGA `0x0A` changes `0xC0 -> 0xC1`

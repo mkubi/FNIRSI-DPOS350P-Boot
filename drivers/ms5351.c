@@ -1,4 +1,4 @@
-#include "ms5351_stock.h"
+#include "ms5351.h"
 
 #define PE_CFG2  (*(volatile uint32_t *)0x01C20898U)
 #define PE_DATA  (*(volatile uint32_t *)0x01C208A0U)
@@ -76,7 +76,7 @@ static void write_block(uint8_t first, const uint8_t values[8], uint32_t *count)
         write_reg((uint8_t)(first + i), values[i], count);
 }
 
-void ms5351_stock_init_95m_10m(struct ms5351_stock_result *result)
+void ms5351_init_95m_10m(struct ms5351_init_result *result)
 {
     static const uint8_t pll_760m[8] = {
         0xFFU, 0xFFU, 0x00U, 0x0DU, 0x33U, 0xF3U, 0x33U, 0x33U

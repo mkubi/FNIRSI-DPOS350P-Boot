@@ -11,7 +11,7 @@
 #include "../../ui/console.h"
 #include "../../drivers/fpga_bus.h"
 #include "../../drivers/r11_csi.h"
-#include "../../drivers/dpos_acq.h"
+#include "../../drivers/acq.h"
 #include "custom_fpga_start.h"
 #include "smec_matrix.h"
 
@@ -103,8 +103,8 @@ static void capture_buffer_inspect(struct dposlab_acq_probe_result *r)
 void dposlab_acq_variant1_probe(void)
 {
     struct dposlab_acq_probe_result *r = &dposlab_acq_probe_result;
-    struct dpos_acq_prepare_result prepare;
-    struct dpos_acq_capture_result capture;
+    struct acq_prepare_result prepare;
+    struct acq_capture_result capture;
 
 
     r->raw0a = 0U;
@@ -118,7 +118,7 @@ void dposlab_acq_variant1_probe(void)
     r->csi_wait_buffer0 = 0U;
     r->csi_wait_hw_done = 0U;
 
-    dpos_acq_prepare(STOCK_ACQ_MODE_BYTE, 2500U, &prepare);
+    acq_prepare(STOCK_ACQ_MODE_BYTE, 2500U, &prepare);
     r->raw0a = prepare.status_before;
     r->prepared0a = prepare.status_after;
     r->polls = prepare.polls;
@@ -143,7 +143,7 @@ void dposlab_acq_variant1_probe(void)
          * This harness validates the resulting CSI transfer and RAM payload.
          */
         r->capture_called = 1U;
-        r->capture_succeeded = dpos_acq_capture(
+        r->capture_succeeded = acq_capture(
             (uintptr_t)CAPTURE_BUFFER_ADDRESS,
             0U,
             0U,

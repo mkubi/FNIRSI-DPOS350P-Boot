@@ -1,9 +1,9 @@
-#ifndef FPGA_SMEC_H
-#define FPGA_SMEC_H
+#ifndef SMEC_H
+#define SMEC_H
 
 #include <stdint.h>
 
-struct fpga_smec_init_result {
+struct smec_init_result {
     uint32_t completed_jobs;
     uint32_t attempts;
     uint32_t poll64_count;
@@ -20,6 +20,6 @@ struct fpga_smec_init_result {
 };
 
 /* HW-confirmed fixed-profile SMEC initialization, jobs 1 through 7. */
-int fpga_smec_init(struct fpga_smec_init_result *result);
+int smec_init(struct smec_init_result *result);
 
 #endif

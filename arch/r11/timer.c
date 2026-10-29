@@ -15,17 +15,47 @@
 #define TIMER_CLOCK_HZ         24000000U
 #define TIMER_TICKS_PER_MS     (TIMER_CLOCK_HZ / 1000U)
 
+#define AVS_ENABLE_REG         0x01C20144U
+#define AVS_DIVIDER            0x01C20C8CU
+#define AVS_ENABLE_BIT         (1U << 31)
+#define AVS_COUNTER0_DIVISOR   24000U
+#define AVS_COUNTER1_DIVISOR   24U
 #define AVS_CTRL               0x01C20C80U
 #define AVS_COUNTER0           0x01C20C84U
 #define AVS_CTRL_COUNTER0_EN   (1U << 0)
 
 static uint32_t timer_start_ticks;
 
+static void timer_avs_set_divisor(uint32_t channel, uint32_t divisor)
+{
+    uint32_t value;
+
+    value = mmio_read32(AVS_ENABLE_REG);
+    mmio_write32(AVS_ENABLE_REG, value | AVS_ENABLE_BIT);
+
+    value = mmio_read32(AVS_DIVIDER);
+
+    if (channel == 0U) {
+        value &= 0xFFFF0000U;
+        value |= divisor - 1U;
+    } else if (channel == 1U) {
+        value &= 0x0000FFFFU;
+        value |= (divisor - 1U) << 16;
+    }
+
+    mmio_write32(AVS_DIVIDER, value);
+}
+
+static void timer_avs_init(void)
+{
+    timer_avs_set_divisor(0U, AVS_COUNTER0_DIVISOR);
+    timer_avs_set_divisor(1U, AVS_COUNTER1_DIVISOR);
+}
+
 void timer_init(void)
 {
     uint32_t ctrl;
 
-    /* Stop Timer 0 before changing its interval and clock source. */
     mmio_write32(TIMER0_CTRL, 0U);
     mmio_write32(TIMER0_INTERVAL, 0xFFFFFFFFU);
 
@@ -33,7 +63,6 @@ void timer_init(void)
            TIMER_CTRL_RELOAD;
     mmio_write32(TIMER0_CTRL, ctrl);
 
-    /* RELOAD is self-clearing; enabling afterwards starts the down-counter. */
     while (mmio_read32(TIMER0_CTRL) & TIMER_CTRL_RELOAD) {
         /* wait */
     }
@@ -43,11 +72,13 @@ void timer_init(void)
                  TIMER_CTRL_ENABLE);
 
     timer_start_ticks = mmio_read32(TIMER0_CURRENT);
+
+    /* Stock System_Init initializes both AVS divider channels. */
+    timer_avs_init();
 }
 
 uint32_t timer_ticks(void)
 {
-    /* Unsigned subtraction naturally handles one 32-bit down-counter wrap. */
     return timer_start_ticks - mmio_read32(TIMER0_CURRENT);
 }
 
@@ -80,11 +111,9 @@ void timer_delay_ms(uint32_t milliseconds)
 {
     uint32_t deadline = timer_get_ms() + milliseconds;
 
-    while (!timer_deadline_reached(deadline)) {
+    while (!timer_deadline_reached(deadline))
         __asm__ volatile ("nop");
-    }
 }
-
 
 void timer_avs_delay_units(uint32_t units)
 {
@@ -103,3 +132,4 @@ void timer_avs_delay_units(uint32_t units)
 
     __asm__ volatile ("dmb sy" ::: "memory");
 }
+

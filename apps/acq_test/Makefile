@@ -27,6 +27,8 @@ SOURCES_C := main.c \
     $(ROOT)/drivers/fpga_init.c \
     $(ROOT)/drivers/fpga_protocol.c \
     $(ROOT)/drivers/smec.c \
+    $(ROOT)/drivers/profile.c \
+    $(ROOT)/drivers/acq.c \
     $(ROOT)/ui/font8x8.c \
     $(ROOT)/ui/console.c
 SOURCES_S := start.S

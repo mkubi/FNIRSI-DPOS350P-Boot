@@ -1,9 +1,9 @@
-#ifndef DPOS_HW_H
-#define DPOS_HW_H
+#ifndef FPGA_INIT_H
+#define FPGA_INIT_H
 
 #include <stdint.h>
 
-struct dpos_hw_init_result {
+struct fpga_init_result {
     uint32_t fpga_id_before;
     uint32_t fpga_id_after;
     uint32_t clock_writes;
@@ -23,6 +23,6 @@ struct dpos_hw_init_result {
  * This is a custom implementation and does not call stock EXE2 code.
  * Acquisition preparation, SMEC and capture remain separate operations.
  */
-int dpos_hw_init(struct dpos_hw_init_result *result);
+int fpga_init(struct fpga_init_result *result);
 
 #endif
