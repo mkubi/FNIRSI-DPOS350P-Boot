@@ -34,3 +34,12 @@ void console_present(void)
     for (i = 0U; i < DISPLAY_WIDTH * DISPLAY_HEIGHT; ++i)
         next[i] = presented[i];
 }
+
+void console_present_swap_only(void)
+{
+    /*
+     * Full-redraw fast path: the caller will clear/redraw the next backbuffer,
+     * so mirroring the complete 1024x600 frame is unnecessary.
+     */
+    display_swap();
+}

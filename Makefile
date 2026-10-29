@@ -20,6 +20,7 @@ CFLAGS := -O2 -mcpu=cortex-a7 -marm -mno-unaligned-access \
 
 SOURCES_C := \
     arch/r11/cache.c \
+    arch/r11/mmu.c \
     arch/r11/timer.c \
     drivers/gpio.c \
     drivers/display.c \

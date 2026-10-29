@@ -189,7 +189,7 @@ static void boot_menu_draw(const boot_context_t *context,
         console_putln("");
     }
 
-    console_present();
+    console_present_swap_only();
 }
 
 

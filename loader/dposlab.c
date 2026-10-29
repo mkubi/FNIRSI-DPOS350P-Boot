@@ -3,6 +3,7 @@
 #include "dposlab.h"
 #include "fat.h"
 #include "cache.h"
+#include "mmu.h"
 
 static const char name83[11] = DPOSLAB_NAME_83;
 
@@ -111,6 +112,9 @@ void dposlab_start(const loader_image_t *image, dposlab_handoff_t *handoff)
     handoff->stage2_sp = stage2_sp;
     cache_clean_range((uintptr_t)handoff, sizeof(*handoff));
     cache_dsb();
+
+    /* Stage 3 and stock EXE2 retain the established cache-off ABI. */
+    mmu_disable_identity_cache();
 
     dposlab_jump_stage3(image->entry_address, handoff);
 }
