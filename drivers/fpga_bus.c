@@ -335,11 +335,24 @@ void fpga_bus_enter_csi_mode(void)
 {
     uint32_t cfg = PE_CFG0;
 
-    /* Stock 0x40065EF8: PE0, PE2, PE3 and PE8..PE15 -> function 2. */
-    cfg &= ~((0xFU << 0) | (0xFU << 8) | (0xFU << 12));
-    cfg |=  ((2U << 0) | (2U << 8) | (2U << 12));
+    /*
+     * Stock CSI capture pinmux:
+     *
+     * PE0 -> function 2, CSI PCLK
+     * PE1 -> function 1, GPIO output capture gate
+     * PE2 -> function 2, CSI HSYNC
+     * PE3 -> function 2, CSI VSYNC
+     *
+     * Result for the low four pins: 0x2212.
+     */
+    cfg &= ~0x0000FFFFU;
+    cfg |= 0x00002212U;
     PE_CFG0 = cfg;
+
     PE_CFG1 = 0x22222222U;
+
+    /* Capture gate must enter the CSI window deasserted. */
+    pe_clear(1U);
     barrier();
 }
 
@@ -347,11 +360,18 @@ void fpga_bus_leave_csi_mode(void)
 {
     uint32_t cfg = PE_CFG0;
 
-    /* Stock 0x40049110: PE0..PE3 back to GPIO, PE0 high, PE1 low. */
+    /*
+     * Stock FPGA GPIO control mode:
+     * PE0..PE3 are GPIO outputs.
+     */
     cfg &= ~0x0000FFFFU;
+    cfg |= 0x00001111U;
     PE_CFG0 = cfg;
+
+    /* Stock idle state: PE0 high, PE1 low. */
     pe_set(0U);
     pe_clear(1U);
+
     data_bus_input();
     barrier();
 }

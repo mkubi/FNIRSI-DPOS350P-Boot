@@ -5,13 +5,16 @@
 
 #define ACQ_STREAM_QUANTITY 0x300EU
 #define ACQ_CSI_IRQ_ENABLE_REG 0x01CB4070U
+#define ACQ_PE_CFG0_REG          0x01C20890U
+#define ACQ_PE_DATA_REG          0x01C208A0U
+#define ACQ_TIMER0_CTRL_REG      0x01C20C10U
 
 static uint32_t read32(uintptr_t address)
 {
     return *(volatile const uint32_t *)address;
 }
 
-static void acq_configure_stream(void)
+void acq_configure_stream(void)
 {
     /* Current HW-confirmed receiver profile: 0x1800-byte payload. */
     r11_csi_configure_fixed_stream_geometry();
@@ -60,12 +63,21 @@ int acq_capture(
     out->buffer0 = 0U;
     out->irq_enable = 0U;
     out->wait_polls = 0U;
+    out->pe_data_before = 0U;
+    out->pe_data_high = 0U;
+    out->pe_data_low = 0U;
+    out->timer_before = 0U;
+    out->timer_low = 0U;
+    out->timer_high = 0U;
+    out->pe_cfg0_csi = 0U;
+    out->pe_cfg0_gpio = 0U;
     out->done = 0;
 
-    acq_configure_stream();
     fpga_protocol_capture_prepare_position(position);
     fpga_protocol_capture_select_bank(bank);
+    out->pe_data_before = read32(ACQ_PE_DATA_REG);
     fpga_bus_enter_csi_mode();
+    out->pe_cfg0_csi = read32(ACQ_PE_CFG0_REG);
 
     r11_csi_set_buffer0(buffer);
     r11_csi_ack(R11_CSI_DONE);
@@ -80,10 +92,13 @@ int acq_capture(
         timeout_iterations, &status_after) ? 1 : 0;
 
     fpga_capture_gate(0);
+    out->pe_data_low = read32(ACQ_PE_DATA_REG);
     r11_csi_timer0_gate(1);
+    out->timer_high = read32(ACQ_TIMER0_CTRL_REG);
     r11_csi_ack(R11_CSI_DONE);
-    r11_csi_capture_disable();
+    /* Stock CSI mode auto-clears after a completed frame. */
     fpga_bus_leave_csi_mode();
+    out->pe_cfg0_gpio = read32(ACQ_PE_CFG0_REG);
 
     out->status_after = status_after;
     out->mode = r11_csi_mode();

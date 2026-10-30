@@ -4,6 +4,9 @@
 #include <stdint.h>
 #include <stddef.h>
 
+/* Configure fixed CSI geometry and FPGA stream quantity once per acquisition session. */
+void acq_configure_stream(void);
+
 struct acq_prepare_result {
     uint8_t status_before;
     uint8_t status_after;
@@ -23,6 +26,14 @@ struct acq_capture_result {
     uint32_t buffer0;
     uint32_t irq_enable;
     uint32_t wait_polls;
+    uint32_t pe_data_before;
+    uint32_t pe_data_high;
+    uint32_t pe_data_low;
+    uint32_t timer_before;
+    uint32_t timer_low;
+    uint32_t timer_high;
+    uint32_t pe_cfg0_csi;
+    uint32_t pe_cfg0_gpio;
     int done;
 };
 
