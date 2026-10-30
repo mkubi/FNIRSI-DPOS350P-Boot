@@ -455,11 +455,15 @@ static uint32_t job_active = 0U;
 
 static uint32_t read_u32(uint32_t address);
 static uint32_t read_u8(uint32_t address);
+static void clear_current_job(void);
 
 /* T1 frontend profile: record every covered FPGA primitive until the
  * post-screenshot hook freezes the ring and exports it. */
 __attribute__((section(".data"), used, aligned(4)))
-static uint32_t frontend_trace_enabled = 1U;
+static uint32_t frontend_trace_enabled = 0U;
+
+/* First two CSI destinations delimit Bank0 and Bank1.  Freeze at Bank2. */
+static uint32_t capture_destination_count = 0U;
 
 /*
  * Current raw FPGA selector.
@@ -469,8 +473,13 @@ static uint32_t frontend_trace_enabled = 1U;
  */
 static uint32_t raw_current_selector = 0U;
 
-
+#ifndef DPOSDBG_FILTER_IDLE_FRONTEND_HEARTBEAT
+#define DPOSDBG_FILTER_IDLE_FRONTEND_HEARTBEAT 1
+#endif
 #define IDLE_HB_RECORD_COUNT 16U
+
+
+#if DPOSDBG_FILTER_IDLE_FRONTEND_HEARTBEAT
 
 typedef struct {
     uint32_t event;
@@ -496,6 +505,8 @@ static const dposdbg_idle_hb_step_t idle_hb_pattern[IDLE_HB_RECORD_COUNT] = {
     {DPOSDBG_EVENT_FPGA_SELECTOR, 0x2CU},
     {DPOSDBG_EVENT_FPGA_WRITE, 0x00U}
 };
+#endif
+
 static dposdbg_job_record_t idle_hb_pending[IDLE_HB_RECORD_COUNT];
 static uint32_t idle_hb_pending_count = 0U;
 
@@ -523,21 +534,65 @@ static void flush_idle_hb_pending(void)
     idle_hb_pending_count = 0U;
 }
 
+static void reset_triggered_trace(void)
+{
+    dposdbg_trace.write_index = 0U;
+    dposdbg_trace.wrapped = 0U;
+    dposdbg_trace.dropped = 0U;
+    idle_hb_pending_count = 0U;
+    raw_current_selector = 0U;
+    clear_current_job();
+    current_selector = 0U;
+    job_active = 0U;
+    __asm__ volatile ("dmb ish" ::: "memory");
+}
+
+static void publish_capture_destination(uint32_t destination,
+                                        uint32_t call_site,
+                                        uint32_t ordinal)
+{
+    dposdbg_job_record_t marker;
+
+    marker.sequence = 0U;
+    marker.tick_ms = read_u32(STOCK_TOUCH_TICK);
+    marker.run_count = read_u32(STOCK_SYS_RUN_COUNT);
+    marker.state_pack = read_u8(STOCK_RUN_STOP) & 0xFFU;
+    marker.flags = JOB_FLAG_CSI_DESTINATION;
+    marker.value_69 = 0U;
+    marker.value_6a = 0U;
+    marker.value_6b = destination;
+    marker.poll65_count = 0U;
+    marker.result_66 = 0U;
+    marker.status_pack = 0U;
+    marker.counts_pack = ordinal;
+    marker.begin_call_site = call_site;
+    marker.last_call_site = call_site;
+    marker.selector_count = 0U;
+    marker.primitive_count = 1U;
+
+    publish_raw_record(&marker);
+}
+
+#if DPOSDBG_FILTER_IDLE_FRONTEND_HEARTBEAT
 static uint32_t idle_hb_step_matches(uint32_t position, uint32_t event,
                                      uint32_t value)
 {
     const dposdbg_idle_hb_step_t *expected = &idle_hb_pattern[position];
+
     return expected->event == event &&
            expected->value == (value & 0xFFU);
 }
+#endif
 
 static void filter_or_publish_raw(dposdbg_job_record_t *raw, uint32_t event,
                                   uint32_t value)
 {
+#if DPOSDBG_FILTER_IDLE_FRONTEND_HEARTBEAT
     if (idle_hb_pending_count != 0U &&
         !idle_hb_step_matches(idle_hb_pending_count, event, value)) {
         flush_idle_hb_pending();
     }
+
     if (idle_hb_step_matches(idle_hb_pending_count, event, value)) {
         idle_hb_pending[idle_hb_pending_count++] = *raw;
         if (idle_hb_pending_count == IDLE_HB_RECORD_COUNT) {
@@ -546,6 +601,11 @@ static void filter_or_publish_raw(dposdbg_job_record_t *raw, uint32_t event,
         }
         return;
     }
+#else
+    (void)event;
+    (void)value;
+#endif
+
     publish_raw_record(raw);
 }
 
@@ -840,34 +900,29 @@ void dposdbg_smec_trace_end(void)
 void dposdbg_trace_primitive(uint32_t event, uint32_t value,
                              uint32_t call_site)
 {
-    /* Raw primitive evidence is the authoritative T1 protocol trace. */
+    if (event == DPOSDBG_EVENT_CSI_DESTINATION) {
+        capture_destination_count += 1U;
+
+        if (capture_destination_count == 1U) {
+            reset_triggered_trace();
+            frontend_trace_enabled = 1U;
+            publish_capture_destination(value, call_site, 0U);
+        } else if (capture_destination_count == 2U) {
+            publish_capture_destination(value, call_site, 1U);
+        } else if (capture_destination_count == 3U) {
+            flush_idle_hb_pending();
+            frontend_trace_enabled = 0U;
+            __asm__ volatile ("dmb ish" ::: "memory");
+        }
+        return;
+    }
+
+    /* Raw primitive evidence inside the triggered Bank0/Bank1 window. */
     append_raw_primitive(event, value, call_site);
 
     /* Retain the historical first-SMEC reconstructed job records too. */
     if (smec_trace_active == 0U)
         return;
-    if (event == DPOSDBG_EVENT_CSI_DESTINATION) {
-        uint32_t index = dposdbg_trace.write_index;
-        uint32_t slot = index % DPOSDBG_TRACE_CAPACITY;
-        dposdbg_job_record_t *record = &dposdbg_trace.records[slot];
-        if (index >= DPOSDBG_TRACE_CAPACITY)
-            dposdbg_trace.wrapped = 1U;
-        clear_current_job();
-        current_job.sequence = index;
-        current_job.tick_ms = read_u32(STOCK_TOUCH_TICK);
-        current_job.run_count = read_u32(STOCK_SYS_RUN_COUNT);
-        current_job.state_pack = read_u8(STOCK_RUN_STOP) & 0xFFU;
-        current_job.flags = JOB_FLAG_CSI_DESTINATION;
-        current_job.value_6b = value;
-        current_job.begin_call_site = call_site;
-        current_job.last_call_site = call_site;
-        current_job.primitive_count = 1U;
-        *record = current_job;
-        dposdbg_trace.write_index = index + 1U;
-        clear_current_job();
-        job_active = 0U;
-        return;
-    }
     if (event == DPOSDBG_EVENT_FPGA_SELECTOR)
         handle_selector(value, call_site);
     else if (event == DPOSDBG_EVENT_FPGA_WRITE)

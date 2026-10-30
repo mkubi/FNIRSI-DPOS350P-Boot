@@ -26,7 +26,7 @@ dposdbg_header:
     .word 2
     .word __image_size
     .word dposdbg_trace
-    .word 53
+    .word 54
     .word dposdbg_hook_table - dposdbg_header
     .word 0
     .word 0
@@ -35,6 +35,8 @@ dposdbg_header:
 .global dposdbg_hook_table
 dposdbg_hook_table:
     HOOK 0x400350F0, 0xEAFFFC63, 0x40055AD4, dposdbg_screenshot_hook, DPOSDBG_PATCH_ARM_B
+    /* Triggered capture window: CSI destination call inside 0x40040638. */
+    HOOK 0x40040660, 0xEB009672, 0x40055ADC, dposdbg_fpga_selector_wrapper, DPOSDBG_PATCH_ARM_BL
     HOOK 0x40049E1C, 0xEBFFFD16, 0x40055ADC, dposdbg_fpga_selector_wrapper, DPOSDBG_PATCH_ARM_BL
     HOOK 0x40049E20, 0xEBFFFCE4, 0x40055AEC, dposdbg_fpga_read_wrapper, DPOSDBG_PATCH_ARM_BL
     HOOK 0x40049F6C, 0xEBFFFCC2, 0x40055ADC, dposdbg_fpga_selector_wrapper, DPOSDBG_PATCH_ARM_BL

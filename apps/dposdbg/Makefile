@@ -8,8 +8,10 @@ SIZE := $(CROSS_COMPILE)size
 ROOT := ../..
 BUILD := $(ROOT)/build/apps/dposdbg
 TARGET := $(BUILD)/DPOSDBG
+DPOSDBG_FILTER_IDLE_FRONTEND_HEARTBEAT ?= 1
 
-CFLAGS := -O2 -mcpu=cortex-a7 -marm -mno-unaligned-access \
+CFLAGS := -DDPOSDBG_FILTER_IDLE_FRONTEND_HEARTBEAT=$(DPOSDBG_FILTER_IDLE_FRONTEND_HEARTBEAT) \
+	  -O2 -mcpu=cortex-a7 -marm -mno-unaligned-access \
           -ffreestanding -fno-builtin -fno-common -fno-stack-protector \
           -fno-unwind-tables -fno-asynchronous-unwind-tables \
           -nostdlib -Wall -Wextra -Werror
