@@ -4,8 +4,12 @@
 
 #define STOCK_FPGA_CALL_SITE         0x40034738U
 #define STOCK_FPGA_CALL_ORIGINAL     0xEB005292U
+#define DPOSLAB_EXPERIMENT_A_STOCK_FPGA_START 1
+#define STOCK_FPGA_START_ADDRESS     0x40049188U
 #define STOCK_SMEC_MATRIX_SITE       0x40034750U
 #define STOCK_SMEC_MATRIX_ORIGINAL   0xEB005681U
+#define DPOSLAB_EXPERIMENT_B_STOCK_SMEC_INIT 1
+#define STOCK_FULL_SMEC_INIT_ADDRESS 0x4004A15CU
 #define DPOSLAB_SMEC_MATRIX_VENEER   0x40055AECU
 #define DPOSLAB_CUSTOM_FPGA_VENEER   0x40055AE4U
 #define DPOSLAB_SYSCONFIG_VENEER     0x40055B3CU
@@ -675,6 +679,8 @@ int dposlab_install_fpga_hook(void)
 #define STOCK_FACTORY_CHECK_ORIGINAL     0xEB00755FU
 #define STOCK_SYS_CONFIG_EXEC_SITE       0x40034770U
 #define STOCK_SYS_CONFIG_EXEC_ORIGINAL   0xEB0027E4U
+#define DPOSLAB_EXPERIMENT_C_STOCK_SYSCONFIG 1
+#define STOCK_FULL_SYSCONFIG_EXEC_ADDRESS 0x4003E708U
 #define STOCK_CHECK_UPDATE_SITE          0x40034768U
 #define STOCK_CHECK_UPDATE_ORIGINAL      0xEB006A71U
 #define STOCK_GEN_INIT_SITE               0x40034764U
@@ -776,12 +782,21 @@ int dposlab_install_minimal_stock_fpga_hook(void)
     veneer = word_at(DPOSLAB_FPGA_VENEER);
     hook_address =
         (uint32_t)(uintptr_t)dposlab_minimal_stock_fpga_hook;
-    custom_fpga_address =
-        (uint32_t)(uintptr_t)dposlab_custom_fpga_start;
-    smec_matrix_address =
-        (uint32_t)(uintptr_t)dposlab_smec_matrix_init;
-    sysconfig_matrix_address =
-        (uint32_t)(uintptr_t)dposlab_sysconfig_group_dispatch;
+    /* Experiment A: preserve all surrounding runtime patches, but let
+     * the original complete stock FPGA_Start own CSI, IRQ74, GPIO and
+     * clock initialization. The custom phase matrix is not called.
+     */
+    custom_fpga_address = STOCK_FPGA_START_ADDRESS;
+    /* Experiment B: use the complete stock SMEC_Init while keeping
+     * the same surrounding runtime, SysConfig and stock 4-bank
+     * acquisition path for a controlled comparison.
+     */
+    smec_matrix_address = STOCK_FULL_SMEC_INIT_ADDRESS;
+    /* Experiment C: execute the complete original SysConfigExec.
+     * The matrix dispatcher and all SYSCFG_* build selections are
+     * bypassed for this controlled comparison.
+     */
+    sysconfig_matrix_address = STOCK_FULL_SYSCONFIG_EXEC_ADDRESS;
     horizontal_matrix_address =
         (uint32_t)(uintptr_t)dposlab_horizontal_matrix_init;
 

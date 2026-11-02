@@ -671,8 +671,12 @@ dposlab_smec_poll65_hook:
 .extern dposlab_stock_acq_monitor
 dposlab_minimal_stock_fpga_hook:
     /*
-     * Stock main reached the FactoryCheck boundary after executing every
-     * preceding non-GUI stage in authentic order. Snapshot and stop here.
+     * Stop at the stock FactoryCheck call-site. CheckAndUpdateNewSystem has
+     * already run authentically. FactoryCheck and the duplicate FatFsInit are
+     * deliberately excluded from Variant A.
+     *
+     * The oracle performs stock acquisition select/prepare/wait-ready, then
+     * crosses into custom position, stream, and CSI bank capture logic.
      */
     bl      dposlab_stock_acq_probe
     bl      dposlab_stock_acq_monitor

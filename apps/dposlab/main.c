@@ -8,6 +8,7 @@
 #include "../../ui/console.h"
 #include "../../drivers/fpga_bus.h"
 
+#include "stock_acq_probe.h"
 #ifndef DPOSLAB_MODE
 #define DPOSLAB_MODE 0
 #endif
@@ -22,7 +23,7 @@ static void put_hex(uint32_t v)
     s[0]='0'; s[1]='x'; for(i=0;i<8;i++) s[2+i]=h[(v>>(28-i*4))&15]; s[10]=0;
     console_puts(s);
 }
-#if DPOSLAB_MODE != 0
+#if DPOSLAB_MODE >= 2
 static void line(const char *n,uint32_t v){ console_puts(n); put_hex(v); console_putln(""); }
 #endif
 volatile uint32_t dposlab_fpga_hook_hits
@@ -199,7 +200,7 @@ int main(const dposlab_handoff_t *handoff)
     console_present();
     if (!stock_api_validate()) { console_putln("STOCK API VALIDATE: FAIL"); console_present(); for(;;)__asm__ volatile("wfi"); }
     console_putln("STOCK API VALIDATE: OK"); console_present();
-#if DPOSLAB_MODE == 0
+#if DPOSLAB_MODE == 0 || DPOSLAB_MODE == 1
     marker = 0x4C414210U;
     dposlab_trace_reset();
 

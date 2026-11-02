@@ -19,6 +19,15 @@ struct acq_prepare_result {
     int ready;
 };
 
+/*
+ * Compute and publish stock capture position after an external path has
+ * already completed ACQ_RESTART and READY polling. No restart or poll occurs.
+ */
+int acq_prepare_position_after_ready(struct acq_prepare_result *result);
+
+/* Publish a stock-prepared position without FPGA I/O. */
+void acq_set_prepared_capture_position(uint16_t position);
+
 int acq_prepare(
     uint8_t mode,
     uint32_t max_polls,

@@ -145,6 +145,33 @@ static int acq_compute_stock_capture_position(
     return 1;
 }
 
+int acq_prepare_position_after_ready(struct acq_prepare_result *result)
+{
+    struct acq_prepare_result local;
+    struct acq_prepare_result *out = result ? result : &local;
+
+    out->status_before = 0U;
+    out->status_after = 0U;
+    out->polls = 0U;
+    out->live_pointer = 0U;
+    out->runtime_290 = 0U;
+    out->runtime_63c = 0U;
+    out->capture_position = 0U;
+    out->pointer_valid = 0;
+    out->ready = 1;
+
+    acq_stock_capture_position = 0U;
+    acq_stock_capture_position_valid = 0;
+    return acq_compute_stock_capture_position(out);
+}
+
+void acq_set_prepared_capture_position(uint16_t position)
+{
+    acq_stock_capture_position = position;
+    acq_stock_capture_position_valid = 1;
+    __asm__ volatile ("dmb sy" ::: "memory");
+}
+
 void acq_configure_stream(void)
 {
     /* Current HW-confirmed receiver profile: 0x1800-byte payload. */

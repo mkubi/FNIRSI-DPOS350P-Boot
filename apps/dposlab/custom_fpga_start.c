@@ -21,6 +21,14 @@
 #define STOCK_F1_CSI_INIT   ((void (*)(uint32_t))0x400660C8U)
 #define STOCK_F3_GPIO_MODE  ((void (*)(uint32_t))0x40049094U)
 #define STOCK_F4_CLOCK_TAIL ((void (*)(void))0x400490B8U)
+#define CUSTOM_FPGA_IRQ74_INTEGRATED 1
+#define STOCK_CSI_COMPLETION_SERVICE ((void (*)(void))(uintptr_t)0x40065EB0U)
+#define STOCK_IRQ_REGISTER \
+    ((void (*)(uint32_t, void (*)(void), uint32_t, uint32_t)) \
+        (uintptr_t)0x40066BD4U)
+#define STOCK_IRQ_RESTORE ((void (*)(void))(uintptr_t)0x40066B88U)
+#define STOCK_IRQ74_SLOT \
+    (*(volatile uint32_t *)(uintptr_t)0x42E67B24U)
 
 volatile struct dposlab_custom_fpga_start_result
     dposlab_custom_fpga_start_result;
@@ -122,11 +130,24 @@ void dposlab_custom_fpga_start(void)
     parity.mode = 0U;
     clock.writes = 0U;
     clock.completed = 0;
+    r->irq74_slot_before = STOCK_IRQ74_SLOT;
+    r->irq74_slot_after = 0U;
+    r->irq74_registered = 0U;
 
     /* Constant diagnostic preamble for every matrix combination. */
     fpga_diag_read_id_baseline(&fpga);
 
     csi_ok = fpga.present ? phase_f1(&parity) : 0;
+    if (csi_ok) {
+        STOCK_IRQ_REGISTER(0x74U, STOCK_CSI_COMPLETION_SERVICE, 0U, 1U);
+        STOCK_IRQ_RESTORE();
+        __asm__ volatile ("dmb sy" ::: "memory");
+        r->irq74_slot_after = STOCK_IRQ74_SLOT;
+        r->irq74_registered =
+            r->irq74_slot_after ==
+                (uint32_t)(uintptr_t)STOCK_CSI_COMPLETION_SERVICE ? 1U : 0U;
+        csi_ok = csi_ok && r->irq74_registered;
+    }
     phase_f2();
     phase_f3();
     clock_ok = (fpga.present && csi_ok) ? phase_f4(&clock) : 0;
@@ -151,5 +172,6 @@ void dposlab_custom_fpga_start(void)
     r->f2 = (uint8_t)FPGA_F2;
     r->f3 = (uint8_t)FPGA_F3;
     r->f4 = (uint8_t)FPGA_F4;
-    r->success = fpga.present && csi_ok && clock_ok;
+    r->success =
+        fpga.present && csi_ok && clock_ok && r->irq74_registered;
 }

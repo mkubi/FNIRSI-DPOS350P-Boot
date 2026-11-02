@@ -26,7 +26,8 @@ volatile uint32_t g_dposlab_sc1_5_3_profile_error
 
 #if SYSCFG_G1 == SYSCFG_GROUP_STOCK && \
     SYSCFG_SC1_5 == SYSCFG_GROUP_STOCK
-static void capture_sc1_5_3_inputs(void)
+static void __attribute__((unused))
+capture_sc1_5_3_inputs(void)
 {
     volatile const uint8_t *state8 =
         (volatile const uint8_t *)(uintptr_t)0x40544E68U;
@@ -112,7 +113,8 @@ static void capture_and_call_stock_sc1_3(void)
 
 #if SYSCFG_G1 == SYSCFG_GROUP_STOCK && \
     SYSCFG_SC1_5 == SYSCFG_GROUP_STOCK
-static void capture_and_call_stock_sc1_5_1(void)
+static void __attribute__((unused))
+capture_and_call_stock_sc1_5_1(void)
 {
     volatile const uint8_t *state8 =
         (volatile const uint8_t *)(uintptr_t)0x40544E68U;

@@ -32,6 +32,9 @@ struct dposlab_custom_fpga_start_result {
     uint32_t csi_buffer0;
     uint32_t csi_irq_enable;
     uint32_t clock_writes;
+    uint32_t irq74_slot_before;
+    uint32_t irq74_slot_after;
+    uint32_t irq74_registered;
     uint8_t bus_direction_state;
     uint8_t interface_mode_state;
     uint8_t f1;
