@@ -21,12 +21,19 @@
 .extern dposdbg_fpga_write_wrapper
 .extern dposdbg_fpga_read_wrapper
 .extern dposdbg_smec_init_wrapper
+.extern dposdbg_sc3_job_args_wrapper
+.extern dposdbg_acq_window_wrapper
+.extern dposdbg_acq_position_wrapper
+.extern dposdbg_acq_followup_wrapper
+.extern dposdbg_stream_config_wrapper
+.extern dposdbg_horizontal_source_wrapper
+.extern dposdbg_sysconfig_horizontal_wrapper
 dposdbg_header:
     .word 0x30474244
     .word 2
     .word __image_size
     .word dposdbg_trace
-    .word 54
+    .word 64
     .word dposdbg_hook_table - dposdbg_header
     .word 0
     .word 0
@@ -92,3 +99,24 @@ dposdbg_hook_table:
     HOOK 0x4004ACB0, 0xEBFFF971, 0x40055ADC, dposdbg_fpga_selector_wrapper, DPOSDBG_PATCH_ARM_BL
     HOOK 0x4004ACC4, 0xEAFFF952, 0x40055AE4, dposdbg_fpga_write_wrapper, DPOSDBG_PATCH_ARM_B
 
+    /* SC3 selector 0x61 wire trace: selector call plus tail write payload. */
+    HOOK 0x400635DC, 0xEBFF9726, 0x40055ADC, dposdbg_fpga_selector_wrapper, DPOSDBG_PATCH_ARM_BL
+    HOOK 0x400635F0, 0xEAFF9707, 0x40055AE4, dposdbg_fpga_write_wrapper, DPOSDBG_PATCH_ARM_B
+
+    /* SC3 selector 0x0C wire trace: selector plus big-endian 16-bit payload. */
+    HOOK 0x40063364, 0xEBFF97C4, 0x40055ADC, dposdbg_fpga_selector_wrapper, DPOSDBG_PATCH_ARM_BL
+    HOOK 0x40063374, 0xEBFF97A6, 0x40055AE4, dposdbg_fpga_write_wrapper, DPOSDBG_PATCH_ARM_BL
+    HOOK 0x40063388, 0xEAFF97A1, 0x40055AE4, dposdbg_fpga_write_wrapper, DPOSDBG_PATCH_ARM_B
+
+    /* SC3 selector 0x1A wire trace: selector plus computed boolean payload. */
+    HOOK 0x40063678, 0xEBFF96FF, 0x40055ADC, dposdbg_fpga_selector_wrapper, DPOSDBG_PATCH_ARM_BL
+    HOOK 0x400636B8, 0xEAFF96D5, 0x40055AE4, dposdbg_fpga_write_wrapper, DPOSDBG_PATCH_ARM_B
+
+    /* SC3 selector 0x15 safe state trace: selector BL only, no tail-write hook. */
+    HOOK 0x4006343C, 0xEBFF978E, 0x40055ADC, dposdbg_fpga_selector_wrapper, DPOSDBG_PATCH_ARM_BL
+    /* SC3 selector 0x16 safe state trace: selector BL only, no tail-write hook. */
+    HOOK 0x4006346C, 0xEBFF9782, 0x40055ADC, dposdbg_fpga_selector_wrapper, DPOSDBG_PATCH_ARM_BL
+    /* SC3 job 0x0E: capture r0=command, r1=length, r2/r3=values. */
+
+    /* SC3 job 0x0F argument trace, isolated experiment. */
+    HOOK 0x4003E724, 0xEBFFEFCA, 0x40055AFC, dposdbg_sysconfig_horizontal_wrapper, DPOSDBG_PATCH_ARM_BL

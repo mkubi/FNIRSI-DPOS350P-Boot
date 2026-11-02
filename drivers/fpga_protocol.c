@@ -69,12 +69,15 @@ void fpga_protocol_acq_wait_ready(
     uint32_t i;
     uint8_t status;
 
+    result->first_status = 0U;
     result->final_status = 0U;
     result->polls = 0U;
     result->ready = 0;
 
     for (i = 0U; i < max_polls; ++i) {
         status = fpga_protocol_read_u8(0x0AU);
+        if (i == 0U)
+            result->first_status = status;
         result->final_status = status;
         result->polls = i + 1U;
         if ((status & 1U) != 0U) {
@@ -87,6 +90,16 @@ void fpga_protocol_acq_wait_ready(
 void fpga_protocol_stream_set_quantity(uint16_t quantity)
 {
     fpga_protocol_write_u16_be(0x22U, quantity);
+}
+
+uint8_t fpga_protocol_capture_pointer_valid(void)
+{
+    return fpga_protocol_read_u8(0x18U) & 1U;
+}
+
+uint16_t fpga_protocol_capture_read_pointer(void)
+{
+    return fpga_protocol_read_u16_be(0x14U);
 }
 
 void fpga_protocol_capture_prepare_position(uint16_t position)
@@ -204,4 +217,42 @@ int fpga_protocol_parameter_transaction(
     }
 
     return 0;
+}
+
+
+int fpga_protocol_register_write(
+    uint8_t reg,
+    uint8_t length,
+    uint32_t value,
+    struct fpga_protocol_transaction_result *result)
+{
+    switch (length) {
+    case 1U:
+        value &= 0x000000FFU;
+        break;
+    case 2U:
+        value &= 0x0000FFFFU;
+        break;
+    case 4U:
+        break;
+    default:
+        if (result != 0) {
+            uint32_t i;
+            uint32_t *words = (uint32_t *)(void *)result;
+
+            for (i = 0U; i < sizeof(*result) / sizeof(*words); ++i)
+                words[i] = 0U;
+            result->error = -5;
+        }
+        return 0;
+    }
+
+    return fpga_protocol_parameter_transaction(reg, value, result);
+}
+
+int fpga_protocol_register_commit(
+    uint8_t commit,
+    struct fpga_protocol_transaction_result *result)
+{
+    return fpga_protocol_parameter_transaction(commit, 0U, result);
 }

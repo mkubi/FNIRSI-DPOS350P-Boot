@@ -40,6 +40,7 @@
 #define CMD_LONG_RESP     (1U << 7)
 #define CMD_CHECK_CRC     (1U << 8)
 #define CMD_DATA_EXP      (1U << 9)
+#define CMD_WRITE         (1U << 10)
 #define CMD_SEND_INIT     (1U << 15)
 #define CMD_WAIT_PRE      (1U << 13)
 #define CMD_UPCLK_ONLY    (1U << 21)
@@ -48,6 +49,7 @@
 #define RINT_DATA_OVER    (1U << 3)
 #define RINT_RX_DATA_REQ  (1U << 5)
 #define STAR_FIFO_EMPTY   (1U << 2)
+#define STAR_FIFO_FULL    (1U << 3)
 #define RINT_ERROR_MASK   0x0000BBC2U
 #define TIMEOUT           1000000U
 
@@ -589,4 +591,113 @@ int sdmmc0_read_sector(uint32_t sector, uint8_t *buffer)
         capture_state();
     }
     return -21;
+}
+
+
+static int sdmmc0_wait_transfer_ready(void)
+{
+    uint32_t response;
+    uint32_t state;
+    unsigned t;
+    int r;
+
+    for (t = 0U; t < TIMEOUT; ++t) {
+        r = send_cmd(13U, card_rca,
+                     CMD_RESP | CMD_CHECK_CRC, &response);
+        if (r)
+            return -30;
+
+        state = (response >> 9) & 0x0FU;
+        if ((response & (1U << 8)) != 0U && state == 4U)
+            return 0;
+    }
+
+    return -31;
+}
+
+int sdmmc0_write_sector(uint32_t sector, const uint8_t *buffer)
+{
+    uint32_t arg;
+    uint32_t status;
+    const uint32_t *buffer32;
+    unsigned words;
+    unsigned t;
+    int r;
+
+    if (!buffer || !card_rca)
+        return -1;
+    if (((uintptr_t)buffer & 3U) != 0U)
+        return -16;
+
+    buffer32 = (const uint32_t *)buffer;
+    arg = card_high_capacity ? sector : sector * SDMMC0_SECTOR_SIZE;
+
+    if (diag_info) {
+        diag_info->last_cmd = 24U;
+        diag_info->last_risr = 0U;
+        diag_info->last_cmdr = 0U;
+        diag_info->last_resp0 = 0U;
+        diag_info->last_star = 0U;
+        diag_info->words_read = 0U;
+    }
+
+    mmio_write32(SD_RISR, 0xFFFFFFFFU);
+    mmio_write32(SD_GCTL, mmio_read32(SD_GCTL) | GCTL_FIFO_RST);
+    for (t = 0U; t < TIMEOUT; ++t) {
+        if ((mmio_read32(SD_GCTL) & GCTL_FIFO_RST) == 0U)
+            break;
+    }
+    if (t == TIMEOUT)
+        return -32;
+
+    mmio_write32(SD_GCTL,
+                 mmio_read32(SD_GCTL) | GCTL_FIFO_ACCESS_AHB);
+    mmio_write32(SD_BKSR, SDMMC0_SECTOR_SIZE);
+    mmio_write32(SD_BYCR, SDMMC0_SECTOR_SIZE);
+    mmio_write32(SD_CAGR, arg);
+    mmio_write32(SD_CMDR, CMD_START | 24U | CMD_RESP | CMD_CHECK_CRC |
+                          CMD_DATA_EXP | CMD_WRITE | CMD_WAIT_PRE);
+
+    for (words = 0U; words < 128U; ++words) {
+        for (t = 0U; t < TIMEOUT; ++t) {
+            status = mmio_read32(SD_RISR);
+            if ((status & RINT_ERROR_MASK) != 0U) {
+                mmio_write32(SD_RISR, status);
+                return -33;
+            }
+            if ((mmio_read32(SD_STAR) & STAR_FIFO_FULL) == 0U)
+                break;
+        }
+        if (t == TIMEOUT)
+            return -34;
+
+        mmio_write32(SD_FIFO, buffer32[words]);
+    }
+
+    for (t = 0U; t < TIMEOUT; ++t) {
+        status = mmio_read32(SD_RISR);
+        if ((status & RINT_ERROR_MASK) != 0U) {
+            mmio_write32(SD_RISR, status);
+            return -35;
+        }
+        if ((status & (RINT_CMD_DONE | RINT_DATA_OVER)) ==
+            (RINT_CMD_DONE | RINT_DATA_OVER)) {
+            mmio_write32(SD_RISR, 0xFFFFFFFFU);
+            r = sdmmc0_wait_transfer_ready();
+            if (r)
+                return r;
+            if (diag_info) {
+                diag_info->last_risr = status;
+                diag_info->last_cmdr = mmio_read32(SD_CMDR);
+                diag_info->last_resp0 = mmio_read32(SD_RESP0);
+                diag_info->last_star = mmio_read32(SD_STAR);
+                diag_info->words_read = 128U;
+                diag_info->last_error = 0;
+                capture_state();
+            }
+            return 0;
+        }
+    }
+
+    return -36;
 }

@@ -260,6 +260,45 @@ static void fpga_profile_apply(void)
     }
 }
 
+/*
+ * Complete stock 20 us/div trigger register baseline from the live stock
+ * register cache.  Registers 0x0E..0x13 form one group committed by 0xB8.
+ *
+ * The existing profile path already establishes the remaining 20 us state:
+ *   0x19..0x20 via channel_order_init() + channel_calibration_apply()
+ *   0x21..0x23 via acquisition_layout_init() + fpga_profile_apply()
+ */
+static int __attribute__((unused))
+stock_20us_trigger_baseline_apply(void)
+{
+    static const struct {
+        uint8_t reg;
+        uint32_t value;
+    } registers[] = {
+        { 0x0EU, 0x00000020U },
+        { 0x0FU, 0x000000FBU },
+        { 0x10U, 0x000000FBU },
+        { 0x11U, 0x000008F6U },
+        { 0x12U, 0x00000FFFU },
+        { 0x13U, 0x000067D0U },
+    };
+    uint32_t i;
+
+    for (i = 0U; i < sizeof(registers) / sizeof(registers[0]); ++i) {
+        if (!fpga_protocol_parameter_transaction(
+                registers[i].reg,
+                registers[i].value,
+                0))
+            return 0;
+    }
+
+    if (!fpga_protocol_parameter_transaction(0xB8U, 0U, 0))
+        return 0;
+
+    __asm__ volatile ("dmb sy" ::: "memory");
+    return 1;
+}
+
 static void channel_calibration_apply(void)
 {
     volatile uint8_t *state =
@@ -293,6 +332,61 @@ static void channel_calibration_apply(void)
     /* Stock SC1.5.4 always emits the final selector 0x11 pulse. */
     fpga_protocol_write_u8(0x11U, 0U);
     fpga_protocol_write_u8(0x11U, 1U);
+}
+
+/*
+ * Exact fixed-profile reproduction of stock 0x40063CB0 -> 0x40063C34.
+ *
+ * SC1.5.4 above applies the absolute calibration bytes at 0x674..0x67B.
+ * SC1.5.5 applies the second bank at 0x67C..0x683 as signed deltas against
+ * the shadow bytes at 0xBC0..0xBC7.  Each lane uses one direction selector
+ * and one pulse selector:
+ *
+ *   lane i direction selector = 0x96 + 2*i, payload 0 for positive delta,
+ *                               payload 1 for negative delta
+ *   lane i pulse selector     = 0x97 + 2*i, pulse 1 -> 0 abs(delta) times
+ */
+static void __attribute__((unused))
+channel_delta_calibration_apply(void)
+{
+    volatile uint8_t *state =
+        (volatile uint8_t *)(uintptr_t)PROFILE_STATE_BASE;
+    uint32_t i;
+
+    for (i = 0U; i < 8U; ++i) {
+        uint32_t source_offset = 0x67CU + i;
+        uint32_t shadow_offset = 0xBC0U + i;
+        uint32_t target = state[source_offset];
+        uint32_t current = state[shadow_offset];
+        uint32_t magnitude;
+        uint8_t direction;
+        uint8_t direction_selector;
+        uint8_t pulse_selector;
+
+        if (target == current)
+            continue;
+
+        if (target >= current) {
+            direction = 0U;
+            magnitude = target - current;
+        } else {
+            direction = 1U;
+            magnitude = current - target;
+        }
+
+        direction_selector = (uint8_t)(0x96U + 2U * i);
+        pulse_selector = (uint8_t)(direction_selector + 1U);
+
+        fpga_protocol_write_u8(direction_selector, direction);
+        while (magnitude-- != 0U) {
+            fpga_protocol_write_u8(pulse_selector, 1U);
+            fpga_protocol_write_u8(pulse_selector, 0U);
+        }
+
+        state[shadow_offset] = (uint8_t)target;
+    }
+
+    __asm__ volatile ("dmb sy" ::: "memory");
 }
 
 static void channel_order_init(void)
@@ -489,6 +583,21 @@ int profile_init(
     if (progress) progress(out->completed_steps, PROFILE_STEP_CHANNEL_CAL);
 
     channel_calibration_apply();
+    channel_delta_calibration_apply();
+
+    /*
+     * Finish the complete stock 20 us/div baseline before the caller applies
+     * the separately HW-confirmed 20 us -> 10 us delta.
+     */
+    /*
+    if (!stock_20us_trigger_baseline_apply()) {
+        out->failed_step = PROFILE_STEP_CHANNEL_CAL;
+        out->error = -4;
+        if (progress)
+            progress(out->completed_steps, out->failed_step);
+        return 0;
+    }*/
+
     out->completed_steps |= PROFILE_STEP_CHANNEL_CAL;
     active_completed_steps = out->completed_steps;
     out->success = 1;

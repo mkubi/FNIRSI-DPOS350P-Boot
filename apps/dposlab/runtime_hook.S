@@ -667,13 +667,15 @@ dposlab_smec_poll65_hook:
 
 .extern dposlab_acq_variant1_probe
 .extern dposlab_acq_variant1_monitor
+.extern dposlab_stock_acq_probe
+.extern dposlab_stock_acq_monitor
 dposlab_minimal_stock_fpga_hook:
     /*
      * Stock main reached the FactoryCheck boundary after executing every
      * preceding non-GUI stage in authentic order. Snapshot and stop here.
      */
-    bl      dposlab_acq_variant1_probe
-    bl      dposlab_acq_variant1_monitor
+    bl      dposlab_stock_acq_probe
+    bl      dposlab_stock_acq_monitor
 1:
     wfi
     b       1b

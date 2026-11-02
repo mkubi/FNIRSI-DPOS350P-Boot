@@ -31,5 +31,6 @@ typedef struct {
 
 int sdmmc0_init(sdmmc0_info_t *info);
 int sdmmc0_read_sector(uint32_t sector, uint8_t *buffer);
+int sdmmc0_write_sector(uint32_t sector, const uint8_t *buffer);
 
 #endif /* SDMMC0_H */

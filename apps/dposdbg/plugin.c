@@ -27,6 +27,12 @@
 #define JOB_FLAG_UNEXPECTED       (1U << 11)
 #define JOB_FLAG_INCOMPLETE_PAYLOAD (1U << 12)
 
+#define DPOSDBG_PHASE_SYS_CONFIG_ENTRY       0x53594301U
+#define DPOSDBG_PHASE_HORIZONTAL_DONE        0x53594302U
+#define DPOSDBG_PHASE_VERTICAL_ENTRY         0x53594303U
+#define DPOSDBG_PHASE_TRIGGER_ENTRY          0x53594304U
+#define DPOSDBG_PHASE_CSI_BANK0              0x53594305U
+
 #define STOCK_F_OPEN              0x40059B8CU
 #define STOCK_F_WRITE             0x4005A1D4U
 #define STOCK_F_CLOSE             0x4005A694U
@@ -456,6 +462,7 @@ static uint32_t job_active = 0U;
 static uint32_t read_u32(uint32_t address);
 static uint32_t read_u8(uint32_t address);
 static void clear_current_job(void);
+static void reset_triggered_trace(void);
 
 /* T1 frontend profile: record every covered FPGA primitive until the
  * post-screenshot hook freezes the ring and exports it. */
@@ -464,6 +471,20 @@ static uint32_t frontend_trace_enabled = 0U;
 
 /* First two CSI destinations delimit Bank0 and Bank1.  Freeze at Bank2. */
 static uint32_t capture_destination_count = 0U;
+static uint32_t sc3_61_trace_active = 0U;
+
+/*
+ * Complete SysConfigExec trace policy.
+ *
+ * Start only on a transition from another timebase back to the confirmed
+ * 20 us/div index 0x17.  Initializing last_timebase to 0x17 deliberately
+ * avoids arming on the first startup SysConfigExec call.
+ */
+static uint32_t sysconfig_trace_armed = 0U;
+static uint32_t sysconfig_trace_frozen = 0U;
+
+/* Skip startup SysConfigExec calls; arm the first later call at 20 us/div. */
+#define SYSCONFIG_TRACE_MIN_TICK  1000U
 
 /*
  * Current raw FPGA selector.
@@ -524,6 +545,65 @@ static void publish_raw_record(dposdbg_job_record_t *raw)
     *record = *raw;
     __asm__ volatile ("dmb ish" ::: "memory");
     dposdbg_trace.write_index = index + 1U;
+}
+
+static void publish_phase_marker(uint32_t phase, uint32_t call_site)
+{
+    dposdbg_job_record_t raw;
+
+    raw.sequence = 0U;
+    raw.tick_ms = read_u32(STOCK_TOUCH_TICK);
+    raw.run_count = read_u32(STOCK_SYS_RUN_COUNT);
+    raw.state_pack = read_u8(STOCK_RUN_STOP) & 0xFFU;
+    raw.flags = JOB_FLAG_UNEXPECTED;
+    raw.value_69 = phase;
+    raw.value_6a = 0U;
+    raw.value_6b = 0U;
+    raw.poll65_count = 0U;
+    raw.result_66 = 0U;
+    raw.status_pack = 0U;
+    raw.counts_pack = 0U;
+    raw.begin_call_site = call_site;
+    raw.last_call_site = call_site;
+    raw.selector_count = 0U;
+    raw.primitive_count = 0U;
+    publish_raw_record(&raw);
+}
+
+void dposdbg_sysconfig_trace_begin(void)
+{
+    uint32_t current_timebase;
+    uint32_t current_tick;
+
+    if (sysconfig_trace_frozen != 0U || sysconfig_trace_armed != 0U)
+        return;
+
+    current_timebase = read_u8(STOCK_SYS_INFO + 0x588U);
+    current_tick = read_u32(STOCK_TOUCH_TICK);
+
+    /*
+     * One-shot arm policy: ignore startup, then capture the first later
+     * SysConfigExec call while the scope is at the confirmed 20 us/div
+     * timebase index 0x17.
+     */
+    if (current_timebase != 0x17U ||
+        current_tick < SYSCONFIG_TRACE_MIN_TICK)
+        return;
+
+    reset_triggered_trace();
+    capture_destination_count = 0U;
+    sc3_61_trace_active = 0U;
+    sysconfig_trace_armed = 1U;
+    frontend_trace_enabled = 1U;
+    publish_phase_marker(DPOSDBG_PHASE_SYS_CONFIG_ENTRY, 0x4003E724U);
+}
+
+void dposdbg_sysconfig_horizontal_done(void)
+{
+    if (sysconfig_trace_armed == 0U || sysconfig_trace_frozen != 0U)
+        return;
+
+    publish_phase_marker(DPOSDBG_PHASE_HORIZONTAL_DONE, 0x4003E728U);
 }
 
 static void flush_idle_hb_pending(void)
@@ -615,8 +695,30 @@ static void append_raw_primitive(uint32_t event, uint32_t value,
     dposdbg_job_record_t raw;
     uint32_t flags;
 
+    if (sysconfig_trace_armed != 0U &&
+        sysconfig_trace_frozen == 0U &&
+        sc3_61_trace_active == 0U &&
+        event == DPOSDBG_EVENT_FPGA_SELECTOR &&
+        (value & 0xFFU) == 0x61U &&
+        call_site == 0x400635DCU) {
+        /* Preserve HorizontalApply records emitted before selector 0x61. */
+        capture_destination_count = 0U;
+        sc3_61_trace_active = 1U;
+        frontend_trace_enabled = 1U;
+    }
+
     if (frontend_trace_enabled == 0U)
         return;
+
+    if (event == DPOSDBG_EVENT_FPGA_SELECTOR &&
+        (value & 0xFFU) == 0x62U &&
+        call_site == 0x4004AA7CU)
+        publish_phase_marker(DPOSDBG_PHASE_VERTICAL_ENTRY, call_site);
+
+    if (event == DPOSDBG_EVENT_FPGA_SELECTOR &&
+        (value & 0xFFU) == 0x61U &&
+        call_site == 0x400635DCU)
+        publish_phase_marker(DPOSDBG_PHASE_TRIGGER_ENTRY, call_site);
 
     if (event == DPOSDBG_EVENT_FPGA_SELECTOR) {
         raw_current_selector = value & 0xFFU;
@@ -663,6 +765,392 @@ static void append_raw_primitive(uint32_t event, uint32_t value,
     raw.primitive_count = 1U;
 
     filter_or_publish_raw(&raw, event, value);
+
+    if (event == DPOSDBG_EVENT_FPGA_SELECTOR &&
+        (value & 0xFFU) == 0x15U &&
+        call_site == 0x4006343CU) {
+        uint32_t state_27c = read_u8(STOCK_SYS_INFO + 0x27CU);
+        uint32_t mapped_payload = state_27c == 0U ? 2U : 1U;
+
+        raw.sequence = 0U;
+        raw.tick_ms = read_u32(STOCK_TOUCH_TICK);
+        raw.run_count = read_u32(STOCK_SYS_RUN_COUNT);
+        raw.state_pack = read_u8(STOCK_RUN_STOP) & 0xFFU;
+        raw.flags = JOB_FLAG_UNEXPECTED;
+        raw.value_69 = state_27c;
+        raw.value_6a = mapped_payload;
+        raw.value_6b = mapped_payload;
+        raw.poll65_count = 0U;
+        raw.result_66 = 0U;
+        raw.status_pack = 0U;
+        raw.counts_pack = 0U;
+        raw.begin_call_site = 0x40063448U;
+        raw.last_call_site = 0x4006345CU;
+        raw.selector_count = 1U;
+        raw.primitive_count = 0U;
+        publish_raw_record(&raw);
+    }
+
+    if (event == DPOSDBG_EVENT_FPGA_SELECTOR &&
+        (value & 0xFFU) == 0x16U &&
+        call_site == 0x4006346CU) {
+        uint32_t state_27b = read_u8(STOCK_SYS_INFO + 0x27BU);
+
+        raw.sequence = 0U;
+        raw.tick_ms = read_u32(STOCK_TOUCH_TICK);
+        raw.run_count = read_u32(STOCK_SYS_RUN_COUNT);
+        raw.state_pack = read_u8(STOCK_RUN_STOP) & 0xFFU;
+        raw.flags = JOB_FLAG_UNEXPECTED;
+        raw.value_69 = state_27b;
+        raw.value_6a = state_27b;
+        raw.value_6b = state_27b;
+        raw.poll65_count = 0U;
+        raw.result_66 = 0U;
+        raw.status_pack = 0U;
+        raw.counts_pack = 0U;
+        raw.begin_call_site = 0x40063478U;
+        raw.last_call_site = 0x40063480U;
+        raw.selector_count = 1U;
+        raw.primitive_count = 0U;
+        publish_raw_record(&raw);
+    }
+}
+
+void dposdbg_capture_sc3_job_args(uint32_t command,
+                                    uint32_t length,
+                                    uint32_t value_a,
+                                    uint32_t value_b)
+{
+    dposdbg_job_record_t raw;
+
+    raw.sequence = 0U;
+    raw.tick_ms = read_u32(STOCK_TOUCH_TICK);
+    raw.run_count = read_u32(STOCK_SYS_RUN_COUNT);
+    raw.state_pack = read_u8(STOCK_RUN_STOP) & 0xFFU;
+    raw.flags = JOB_FLAG_UNEXPECTED;
+    raw.value_69 = command;
+    raw.value_6a = length;
+    raw.value_6b = value_a;
+    raw.poll65_count = value_b;
+    raw.result_66 = 0U;
+    raw.status_pack = 0U;
+    raw.counts_pack = 0U;
+    raw.begin_call_site = 0x40063554U;
+    raw.last_call_site = 0x40049EC4U;
+    raw.selector_count = 0U;
+    raw.primitive_count = 0U;
+    publish_raw_record(&raw);
+}
+
+void dposdbg_capture_acq_window(void)
+{
+    dposdbg_job_record_t raw;
+    uint32_t state_274;
+    uint32_t state_275;
+    uint32_t value_288;
+    uint32_t value_28c;
+    uint32_t wire_1b;
+    uint32_t wire_1c;
+
+    state_274 = read_u8(STOCK_SYS_INFO + 0x274U);
+    state_275 = read_u8(STOCK_SYS_INFO + 0x275U);
+    value_288 = read_u32(STOCK_SYS_INFO + 0x288U);
+    value_28c = read_u32(STOCK_SYS_INFO + 0x28CU);
+
+    if (state_274 != 0U && state_275 != 0U) {
+        wire_1b = value_288 & 0xFFFFU;
+        wire_1c = value_28c & 0xFFFFU;
+    } else {
+        wire_1b = 0U;
+        wire_1c = 0U;
+    }
+
+    raw.sequence = 0U;
+    raw.tick_ms = read_u32(STOCK_TOUCH_TICK);
+    raw.run_count = read_u32(STOCK_SYS_RUN_COUNT);
+    raw.state_pack = read_u8(STOCK_RUN_STOP) & 0xFFU;
+    raw.flags = JOB_FLAG_UNEXPECTED;
+
+    /*
+     * value_69     = SYS_INFO[0x274]
+     * value_6a     = SYS_INFO[0x275]
+     * value_6b     = *(uint32_t *)(SYS_INFO + 0x288)
+     * poll65_count = *(uint32_t *)(SYS_INFO + 0x28C)
+     * result_66    = predicted wire payloads: 0x1B in high half,
+     *                0x1C in low half
+     */
+    raw.value_69 = state_274;
+    raw.value_6a = state_275;
+    raw.value_6b = value_288;
+    raw.poll65_count = value_28c;
+    raw.result_66 =
+        ((wire_1b & 0xFFFFU) << 16) |
+        (wire_1c & 0xFFFFU);
+    raw.status_pack = 0U;
+    raw.counts_pack = 0U;
+    raw.begin_call_site = 0x4003FB80U;
+    raw.last_call_site = 0x4003FAB0U;
+    raw.selector_count = 0U;
+    raw.primitive_count = 0U;
+
+    publish_raw_record(&raw);
+}
+
+void dposdbg_capture_acq_position(void)
+{
+    dposdbg_job_record_t raw;
+    uint32_t state_274;
+    uint32_t state_275;
+
+    state_274 = read_u8(STOCK_SYS_INFO + 0x274U);
+    state_275 = read_u8(STOCK_SYS_INFO + 0x275U);
+
+    raw.sequence = 0U;
+    raw.tick_ms = read_u32(STOCK_TOUCH_TICK);
+    raw.run_count = read_u32(STOCK_SYS_RUN_COUNT);
+    raw.state_pack = read_u8(STOCK_RUN_STOP) & 0xFFU;
+    raw.flags = JOB_FLAG_UNEXPECTED;
+
+    /*
+     * Snapshot after 0x40063798 has produced SYS_INFO+0x290 and before
+     * 0x4003FB90 consumes it:
+     *
+     * value_69     = SYS_INFO[0x279], selector 0x18 bit 0
+     * value_6a     = SYS_INFO[0x274] | (SYS_INFO[0x275] << 8)
+     * value_6b     = SYS_INFO+0x28C
+     * poll65_count = SYS_INFO+0x520, circular-buffer period
+     * result_66    = SYS_INFO+0x290, normalized runtime position
+     * status_pack  = low 32 bits of SYS_INFO+0x30 fallback source
+     * counts_pack  = high 32 bits of SYS_INFO+0x30 fallback source
+     */
+    raw.value_69 = read_u8(STOCK_SYS_INFO + 0x279U);
+    raw.value_6a =
+        (state_274 & 0xFFU) |
+        ((state_275 & 0xFFU) << 8);
+    raw.value_6b = read_u32(STOCK_SYS_INFO + 0x28CU);
+    raw.poll65_count = read_u32(STOCK_SYS_INFO + 0x520U);
+    raw.result_66 = read_u32(STOCK_SYS_INFO + 0x290U);
+    raw.status_pack = read_u32(STOCK_SYS_INFO + 0x30U);
+    raw.counts_pack = read_u32(STOCK_SYS_INFO + 0x34U);
+    raw.begin_call_site = 0x40041540U;
+    raw.last_call_site = 0x4003FB90U;
+    raw.selector_count = 0U;
+    raw.primitive_count = 0U;
+
+    publish_raw_record(&raw);
+}
+
+void dposdbg_capture_acq_followup(void)
+{
+    dposdbg_job_record_t raw;
+    uint32_t state_274;
+    uint32_t state_275;
+
+    state_274 = read_u8(STOCK_SYS_INFO + 0x274U);
+    state_275 = read_u8(STOCK_SYS_INFO + 0x275U);
+
+    raw.sequence = 0U;
+    raw.tick_ms = read_u32(STOCK_TOUCH_TICK);
+    raw.run_count = read_u32(STOCK_SYS_RUN_COUNT);
+    raw.state_pack = read_u8(STOCK_RUN_STOP) & 0xFFU;
+    raw.flags = JOB_FLAG_UNEXPECTED;
+
+    /*
+     * Snapshot after 0x4003FB90 has completed and immediately before
+     * stock sample-pointer preparation at 0x40040030:
+     *
+     * value_69     = SYS_INFO[0x274] | (SYS_INFO[0x275] << 8)
+     * value_6a     = SYS_INFO[0x279], selector 0x18 bit 0
+     * value_6b     = SYS_INFO+0x290, normalized live position
+     * poll65_count = SYS_INFO+0x63C, follow-up runtime value
+     * result_66    = SYS_INFO+0x2A0, second follow-up result
+     * status_pack  = SYS_INFO+0x520, circular-buffer period
+     * counts_pack  = SYS_INFO+0x28C, fixed runtime window offset
+     */
+    raw.value_69 =
+        (state_274 & 0xFFU) |
+        ((state_275 & 0xFFU) << 8);
+    raw.value_6a = read_u8(STOCK_SYS_INFO + 0x279U);
+    raw.value_6b = read_u32(STOCK_SYS_INFO + 0x290U);
+    raw.poll65_count = read_u32(STOCK_SYS_INFO + 0x63CU);
+    raw.result_66 = read_u32(STOCK_SYS_INFO + 0x2A0U);
+    raw.status_pack = read_u32(STOCK_SYS_INFO + 0x520U);
+    raw.counts_pack = read_u32(STOCK_SYS_INFO + 0x28CU);
+    raw.begin_call_site = 0x40041574U;
+    raw.last_call_site = 0x40040030U;
+    raw.selector_count = 0U;
+    raw.primitive_count = 0U;
+
+    publish_raw_record(&raw);
+}
+
+void dposdbg_capture_stream_config(void)
+{
+    dposdbg_job_record_t raw;
+    uint32_t value_640;
+    uint32_t value_6f2;
+    uint32_t csi_geometry;
+    uint32_t stream_quantity;
+
+    value_640 = *(volatile const uint16_t *)(uintptr_t)
+        (STOCK_SYS_INFO + 0x640U);
+    value_6f2 = *(volatile const uint16_t *)(uintptr_t)
+        (STOCK_SYS_INFO + 0x6F2U);
+    csi_geometry = (value_640 + 2U * value_6f2) & 0xFFFFU;
+    stream_quantity =
+        (20U + 2U * (value_640 + value_6f2)) & 0xFFFFU;
+
+    raw.sequence = 0U;
+    raw.tick_ms = read_u32(STOCK_TOUCH_TICK);
+    raw.run_count = read_u32(STOCK_SYS_RUN_COUNT);
+    raw.state_pack = read_u8(STOCK_RUN_STOP) & 0xFFU;
+    raw.flags = JOB_FLAG_UNEXPECTED;
+
+    /*
+     * Snapshot immediately before stock 0x400405E0:
+     *
+     * value_69     = uint16 SYS_INFO+0x640
+     * value_6a     = uint16 SYS_INFO+0x6F2
+     * value_6b     = stock CSI geometry input: +0x640 + 2*(+0x6F2)
+     * poll65_count = stock selector 0x22 quantity:
+     *                20 + 2*(+0x640 + +0x6F2)
+     * result_66    = SYS_INFO+0x520
+     * status_pack  = SYS_INFO+0x2A0
+     * counts_pack  = SYS_INFO+0x290
+     */
+    raw.value_69 = value_640;
+    raw.value_6a = value_6f2;
+    raw.value_6b = csi_geometry;
+    raw.poll65_count = stream_quantity;
+    raw.result_66 = read_u32(STOCK_SYS_INFO + 0x520U);
+    raw.status_pack = read_u32(STOCK_SYS_INFO + 0x2A0U);
+    raw.counts_pack = read_u32(STOCK_SYS_INFO + 0x290U);
+    raw.begin_call_site = 0x40041584U;
+    raw.last_call_site = 0x400405E0U;
+    raw.selector_count = 0U;
+    raw.primitive_count = 0U;
+
+    publish_raw_record(&raw);
+}
+
+void dposdbg_capture_horizontal_source(
+    uint32_t result_lo,
+    uint32_t result_hi)
+{
+    dposdbg_job_record_t raw;
+    uint32_t timebase_lo;
+    uint32_t timebase_hi;
+
+    timebase_lo = read_u32(STOCK_SYS_INFO + 0x590U);
+    timebase_hi = read_u32(STOCK_SYS_INFO + 0x594U);
+
+    /*
+     * Record A, immediately before stock STRD to SYS_INFO+0x30/+0x34:
+     *
+     * value_69     = uint16 SYS_INFO+0x01C
+     * value_6a     = uint8  SYS_INFO+0x1B1
+     * value_6b     = uint16 SYS_INFO+0x550
+     * poll65_count = uint32 SYS_INFO+0x554
+     * result_66    = uint32 SYS_INFO+0x558
+     * status_pack  = uint32 SYS_INFO+0x55C
+     * counts_pack  = uint32 SYS_INFO+0x590, timebase low
+     * begin        = 0x4003B1C0
+     * last         = 0x4003B1C4
+     */
+    raw.sequence = 0U;
+    raw.tick_ms = read_u32(STOCK_TOUCH_TICK);
+    raw.run_count = read_u32(STOCK_SYS_RUN_COUNT);
+    raw.state_pack = read_u8(STOCK_RUN_STOP) & 0xFFU;
+    raw.flags = JOB_FLAG_UNEXPECTED;
+    raw.value_69 = *(volatile const uint16_t *)(uintptr_t)
+        (STOCK_SYS_INFO + 0x01CU);
+    raw.value_6a = read_u8(STOCK_SYS_INFO + 0x1B1U);
+    raw.value_6b = *(volatile const uint16_t *)(uintptr_t)
+        (STOCK_SYS_INFO + 0x550U);
+    raw.poll65_count = read_u32(STOCK_SYS_INFO + 0x554U);
+    raw.result_66 = read_u32(STOCK_SYS_INFO + 0x558U);
+    raw.status_pack = read_u32(STOCK_SYS_INFO + 0x55CU);
+    raw.counts_pack = timebase_lo;
+    raw.begin_call_site = 0x4003B1C0U;
+    raw.last_call_site = 0x4003B1C4U;
+    raw.selector_count = 0U;
+    raw.primitive_count = 0U;
+    publish_raw_record(&raw);
+
+    /*
+     * Record B completes the 64-bit inputs/output:
+     *
+     * value_69 = uint32 SYS_INFO+0x594, timebase high
+     * value_6a = final quotient low  -> SYS_INFO+0x30
+     * value_6b = final quotient high -> SYS_INFO+0x34
+     * poll     = current SYS_INFO+0x30 before overwrite
+     * result   = current SYS_INFO+0x34 before overwrite
+     * begin    = 0x4003B1C0
+     * last     = 0x4003B1C5 (record-B discriminator)
+     */
+    raw.sequence = 0U;
+    raw.tick_ms = read_u32(STOCK_TOUCH_TICK);
+    raw.run_count = read_u32(STOCK_SYS_RUN_COUNT);
+    raw.state_pack = read_u8(STOCK_RUN_STOP) & 0xFFU;
+    raw.flags = JOB_FLAG_UNEXPECTED;
+    raw.value_69 = timebase_hi;
+    raw.value_6a = result_lo;
+    raw.value_6b = result_hi;
+    raw.poll65_count = read_u32(STOCK_SYS_INFO + 0x030U);
+    raw.result_66 = read_u32(STOCK_SYS_INFO + 0x034U);
+    raw.status_pack = 0U;
+    raw.counts_pack = 0U;
+    raw.begin_call_site = 0x4003B1C0U;
+    raw.last_call_site = 0x4003B1C5U;
+    raw.selector_count = 0U;
+    raw.primitive_count = 0U;
+    publish_raw_record(&raw);
+}
+
+void dposdbg_capture_horizontal_writer(
+    uint32_t writer,
+    uint32_t result_lo,
+    uint32_t result_hi)
+{
+    dposdbg_job_record_t raw;
+
+    raw.sequence = 0U;
+    raw.tick_ms = read_u32(STOCK_TOUCH_TICK);
+    raw.run_count = read_u32(STOCK_SYS_RUN_COUNT);
+    raw.state_pack = read_u8(STOCK_RUN_STOP) & 0xFFU;
+    raw.flags = JOB_FLAG_UNEXPECTED;
+    raw.value_69 = *(volatile const uint16_t *)(uintptr_t)
+        (STOCK_SYS_INFO + 0x01CU);
+    raw.value_6a = read_u8(STOCK_SYS_INFO + 0x1B1U);
+    raw.value_6b = *(volatile const uint16_t *)(uintptr_t)
+        (STOCK_SYS_INFO + 0x550U);
+    raw.poll65_count = read_u32(STOCK_SYS_INFO + 0x554U);
+    raw.result_66 = read_u32(STOCK_SYS_INFO + 0x558U);
+    raw.status_pack = read_u32(STOCK_SYS_INFO + 0x55CU);
+    raw.counts_pack = writer;
+    raw.begin_call_site = writer;
+    raw.last_call_site = 0x4003B1C4U;
+    raw.selector_count = 0U;
+    raw.primitive_count = 0U;
+    publish_raw_record(&raw);
+
+    raw.sequence = 0U;
+    raw.tick_ms = read_u32(STOCK_TOUCH_TICK);
+    raw.run_count = read_u32(STOCK_SYS_RUN_COUNT);
+    raw.state_pack = read_u8(STOCK_RUN_STOP) & 0xFFU;
+    raw.flags = JOB_FLAG_UNEXPECTED;
+    raw.value_69 = read_u32(STOCK_SYS_INFO + 0x590U);
+    raw.value_6a = read_u32(STOCK_SYS_INFO + 0x594U);
+    raw.value_6b = result_lo;
+    raw.poll65_count = result_hi;
+    raw.result_66 = writer;
+    raw.status_pack = read_u32(STOCK_SYS_INFO + 0x030U);
+    raw.counts_pack = read_u32(STOCK_SYS_INFO + 0x034U);
+    raw.begin_call_site = writer;
+    raw.last_call_site = 0x4003B1C5U;
+    raw.selector_count = 0U;
+    raw.primitive_count = 0U;
+    publish_raw_record(&raw);
 }
 
 static uint32_t count_get(uint32_t shift)
@@ -901,9 +1389,24 @@ void dposdbg_trace_primitive(uint32_t event, uint32_t value,
                              uint32_t call_site)
 {
     if (event == DPOSDBG_EVENT_CSI_DESTINATION) {
+        if (sysconfig_trace_frozen != 0U)
+            return;
+
         capture_destination_count += 1U;
 
-        if (capture_destination_count == 1U) {
+        if (sc3_61_trace_active != 0U) {
+            publish_capture_destination(
+                value, call_site, capture_destination_count - 1U);
+            if (capture_destination_count >= 1U) {
+                publish_phase_marker(DPOSDBG_PHASE_CSI_BANK0, call_site);
+                flush_idle_hb_pending();
+                frontend_trace_enabled = 0U;
+                sc3_61_trace_active = 0U;
+                sysconfig_trace_armed = 0U;
+                sysconfig_trace_frozen = 1U;
+                __asm__ volatile ("dmb ish" ::: "memory");
+            }
+        } else if (capture_destination_count == 1U) {
             reset_triggered_trace();
             frontend_trace_enabled = 1U;
             publish_capture_destination(value, call_site, 0U);

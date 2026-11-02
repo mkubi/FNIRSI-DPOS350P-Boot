@@ -343,6 +343,56 @@ int fat_read_file_sector(const fat_volume_t *v,
                               buffer);
 }
 
+int fat_overwrite_existing_file(const fat_volume_t *v,
+                                const fat_file_t *file,
+                                const uint8_t *data,
+                                uint32_t size)
+{
+    uint32_t cluster;
+    uint32_t next;
+    uint32_t sector_index;
+    uint32_t sector_in_cluster;
+    uint32_t total_sectors;
+    uint32_t lba;
+    int r;
+
+    if (!v || !file || !data)
+        return -1;
+    if (file->first_cluster < 2U || !v->sectors_per_cluster)
+        return -2;
+    if (size != file->size || (size % FAT_SECTOR_SIZE) != 0U)
+        return -3;
+    if (((uintptr_t)data & 3U) != 0U)
+        return -4;
+
+    total_sectors = size / FAT_SECTOR_SIZE;
+    cluster = file->first_cluster;
+    sector_in_cluster = 0U;
+
+    for (sector_index = 0U; sector_index < total_sectors; ++sector_index) {
+        lba = cluster_lba(v, cluster) + sector_in_cluster;
+        r = sdmmc0_write_sector(
+            lba, data + sector_index * FAT_SECTOR_SIZE);
+        if (r)
+            return r;
+
+        ++sector_in_cluster;
+        if (sector_in_cluster == v->sectors_per_cluster &&
+            sector_index + 1U < total_sectors) {
+            r = next_cluster(v, cluster, &next);
+            if (r)
+                return -5;
+            if (next < 2U || cluster_is_eoc(v, next) ||
+                cluster_is_bad(v, next))
+                return -6;
+            cluster = next;
+            sector_in_cluster = 0U;
+        }
+    }
+
+    return 0;
+}
+
 int fat_file_reader_init(fat_file_reader_t *reader,
                          const fat_volume_t *volume,
                          const fat_file_t *file)

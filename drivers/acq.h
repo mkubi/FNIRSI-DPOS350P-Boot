@@ -11,6 +11,11 @@ struct acq_prepare_result {
     uint8_t status_before;
     uint8_t status_after;
     uint32_t polls;
+    uint16_t live_pointer;
+    uint16_t runtime_290;
+    uint16_t runtime_63c;
+    uint16_t capture_position;
+    int pointer_valid;
     int ready;
 };
 

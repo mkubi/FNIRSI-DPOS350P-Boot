@@ -23,14 +23,15 @@
 
 #define FRONTEND_CH1_JOB_08_VALUE         0x000012D9U
 #define FRONTEND_CH1_JOB_0A_VALUE         0x00514901U
+#define FRONTEND_CH1_JOB_0C_VALUE         0x000000FBU
 #define FRONTEND_CH1_COMMIT               0xB5U
 
 #define FRONTEND_CH2_JOB_09_VALUE         0x000012D5U
 #define FRONTEND_CH2_JOB_0B_VALUE         0x005125D0U
+#define FRONTEND_CH2_JOB_0D_VALUE         0x000000FBU
 #define FRONTEND_CH2_COMMIT               0xB6U
 
-#define FRONTEND_CHANNEL_SETTLE_MS        60U
-#define FRONTEND_ROUTING_SETTLE_MS        50U
+#define FRONTEND_ROUTING_SETTLE_MS        0U
 
 static void clear_result(struct frontend_init_result *result)
 {
@@ -108,6 +109,14 @@ int frontend_init_stock_default(struct frontend_init_result *result)
             out))
         goto fail;
 
+    /* Complete the stock CH1 B5 group before committing it. */
+    if (!run_job(
+            0x0CU,
+            FRONTEND_CH1_JOB_0C_VALUE,
+            FRONTEND_STEP_CH1_JOB_0A,
+            out))
+        goto fail;
+
     if (!run_job(
             FRONTEND_CH1_COMMIT,
             0x00000000U,
@@ -117,7 +126,6 @@ int frontend_init_stock_default(struct frontend_init_result *result)
 
     fpga_protocol_write_u16_be(FRONTEND_CH1_DIRECT_SELECTOR, 0x0000U);
     complete_step(out, FRONTEND_STEP_CH1_DIRECT);
-    timer_delay_ms(FRONTEND_CHANNEL_SETTLE_MS);
 
     /* CH2: stock-confirmed 200 mV/div stored profile. */
     fpga_protocol_write_u8(
@@ -139,6 +147,14 @@ int frontend_init_stock_default(struct frontend_init_result *result)
             out))
         goto fail;
 
+    /* Complete the stock CH2 B6 group before committing it. */
+    if (!run_job(
+            0x0DU,
+            FRONTEND_CH2_JOB_0D_VALUE,
+            FRONTEND_STEP_CH2_JOB_0B,
+            out))
+        goto fail;
+
     if (!run_job(
             FRONTEND_CH2_COMMIT,
             0x00000000U,
@@ -148,7 +164,6 @@ int frontend_init_stock_default(struct frontend_init_result *result)
 
     fpga_protocol_write_u16_be(FRONTEND_CH2_DIRECT_SELECTOR, 0x0000U);
     complete_step(out, FRONTEND_STEP_CH2_DIRECT);
-    timer_delay_ms(FRONTEND_CHANNEL_SETTLE_MS);
 
     /* Coupling and per-channel bandwidth defaults. */
     fpga_protocol_write_u8(
@@ -177,7 +192,9 @@ int frontend_init_stock_default(struct frontend_init_result *result)
         FRONTEND_CHANNEL_CH1_ON_CH2_OFF);
     complete_step(out, FRONTEND_STEP_CHANNEL_ROUTING);
 
-    timer_delay_ms(FRONTEND_ROUTING_SETTLE_MS);
+    if (FRONTEND_ROUTING_SETTLE_MS != 0U)
+        timer_delay_ms(FRONTEND_ROUTING_SETTLE_MS);
+
     fpga_bus_safe_idle();
 
     out->success = 1;

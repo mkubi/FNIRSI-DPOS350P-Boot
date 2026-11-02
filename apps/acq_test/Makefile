@@ -10,7 +10,7 @@ BUILD := $(ROOT)/build/apps/acq_test
 TARGET := $(BUILD)/DPOSAPP
 
 INCLUDES := -I$(ROOT) -I$(ROOT)/arch/r11 -I$(ROOT)/board/dpos350p \
-            -I$(ROOT)/drivers -I$(ROOT)/ui
+            -I$(ROOT)/drivers -I$(ROOT)/storage -I$(ROOT)/ui
 CFLAGS := -O2 -mcpu=cortex-a7 -marm -mno-unaligned-access \
           -ffreestanding -fno-builtin -fno-common -fno-stack-protector \
           -fno-unwind-tables -fno-asynchronous-unwind-tables \
@@ -22,6 +22,7 @@ SOURCES_C := main.c \
     $(ROOT)/arch/r11/timer.c \
     $(ROOT)/drivers/gpio.c \
     $(ROOT)/drivers/display.c \
+    $(ROOT)/drivers/sdmmc0.c \
     $(ROOT)/drivers/fpga_bus.c \
     $(ROOT)/drivers/ms5351.c \
     $(ROOT)/drivers/r11_csi.c \
@@ -31,6 +32,7 @@ SOURCES_C := main.c \
     $(ROOT)/drivers/profile.c \
     $(ROOT)/drivers/frontend.c \
     $(ROOT)/drivers/acq.c \
+    $(ROOT)/storage/fat.c \
     $(ROOT)/ui/font8x8.c \
     $(ROOT)/ui/console.c
 SOURCES_S := start.S

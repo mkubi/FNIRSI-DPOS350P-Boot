@@ -169,3 +169,125 @@ dposdbg_late_init_dispatcher:
 CSI_POST_WRAPPER dposdbg_csi_destination_wrapper, STOCK_CSI_DESTINATION, 0
 CSI_POST_WRAPPER dposdbg_csi_active_wrapper,      STOCK_CSI_ACTIVE,      1
 CSI_POST_WRAPPER dposdbg_csi_done_wrapper,        STOCK_CSI_DONE,        2
+
+
+.equ STOCK_SC3_PARAMETER_JOB_HELPER, 0x40049EC4
+.global dposdbg_sc3_job_args_wrapper
+.extern dposdbg_capture_sc3_job_args
+.type dposdbg_sc3_job_args_wrapper, %function
+dposdbg_sc3_job_args_wrapper:
+    push    {r0-r3, r12, lr}
+    bl      dposdbg_capture_sc3_job_args
+    pop     {r0-r3, r12, lr}
+    ldr     r12, =STOCK_SC3_PARAMETER_JOB_HELPER
+    bx      r12
+.size dposdbg_sc3_job_args_wrapper, . - dposdbg_sc3_job_args_wrapper
+
+.equ STOCK_ACQ_WINDOW_APPLY, 0x4003FAB0
+
+.global dposdbg_acq_window_wrapper
+.extern dposdbg_capture_acq_window
+.type dposdbg_acq_window_wrapper, %function
+dposdbg_acq_window_wrapper:
+    /* Replaces 0x4003FB80: BL 0x4003FAB0. */
+    push    {r0-r3, r12, lr}
+    bl      dposdbg_capture_acq_window
+    pop     {r0-r3, r12, lr}
+
+    /* Preserve the stock LR and continue through the original trampoline. */
+    ldr     r12, =STOCK_ACQ_WINDOW_APPLY
+    bx      r12
+.size dposdbg_acq_window_wrapper, . - dposdbg_acq_window_wrapper
+
+.equ STOCK_ACQ_POSITION_FOLLOWUP, 0x4003FB90
+
+.global dposdbg_acq_position_wrapper
+.extern dposdbg_capture_acq_position
+.type dposdbg_acq_position_wrapper, %function
+dposdbg_acq_position_wrapper:
+    /* Replaces 0x40041540: BL 0x4003FB90. */
+    push    {r0-r3, r12, lr}
+    bl      dposdbg_capture_acq_position
+    pop     {r0-r3, r12, lr}
+
+    /* Original LR still points to 0x40041544. */
+    ldr     r12, =STOCK_ACQ_POSITION_FOLLOWUP
+    bx      r12
+.size dposdbg_acq_position_wrapper, . - dposdbg_acq_position_wrapper
+
+.equ STOCK_SAMPLE_POINTER_PREPARE, 0x40040030
+
+.global dposdbg_acq_followup_wrapper
+.extern dposdbg_capture_acq_followup
+.type dposdbg_acq_followup_wrapper, %function
+dposdbg_acq_followup_wrapper:
+    /* Replaces 0x40041574: BL 0x40040030. */
+    push    {r0-r3, r12, lr}
+    bl      dposdbg_capture_acq_followup
+    pop     {r0-r3, r12, lr}
+
+    /* Original LR still points to 0x40041578. */
+    ldr     r12, =STOCK_SAMPLE_POINTER_PREPARE
+    bx      r12
+.size dposdbg_acq_followup_wrapper, . - dposdbg_acq_followup_wrapper
+
+.equ STOCK_STREAM_CONFIGURE, 0x400405E0
+
+.global dposdbg_stream_config_wrapper
+.extern dposdbg_capture_stream_config
+.type dposdbg_stream_config_wrapper, %function
+dposdbg_stream_config_wrapper:
+    /* Replaces 0x40041584: BL 0x400405E0. */
+    push    {r0-r3, r12, lr}
+    bl      dposdbg_capture_stream_config
+    pop     {r0-r3, r12, lr}
+
+    /* Original LR still points to 0x40041588. */
+    ldr     r12, =STOCK_STREAM_CONFIGURE
+    bx      r12
+.size dposdbg_stream_config_wrapper, . - dposdbg_stream_config_wrapper
+
+.equ STOCK_UDIV64_HELPER, 0x40034590
+
+.global dposdbg_horizontal_source_wrapper
+.extern dposdbg_capture_horizontal_source
+.type dposdbg_horizontal_source_wrapper, %function
+dposdbg_horizontal_source_wrapper:
+    /* Replaces 0x4003B1C0: BL 0x40034590. */
+    push    {r4, r12, lr}
+    ldr     r12, =STOCK_UDIV64_HELPER
+    blx     r12
+
+    /* Preserve the stock 64-bit quotient across the diagnostic callback. */
+    mov     r4, r0
+    mov     r12, r1
+    push    {r0-r3, r12}
+    mov     r0, r4
+    mov     r1, r12
+    bl      dposdbg_capture_horizontal_source
+    pop     {r0-r3, r12}
+    mov     r0, r4
+    mov     r1, r12
+    pop     {r4, r12, pc}
+.size dposdbg_horizontal_source_wrapper, . - dposdbg_horizontal_source_wrapper
+
+.equ STOCK_HORIZONTAL_WRITER1_CONTINUE, 0x4003B1C8
+
+.equ STOCK_APPLY_HORIZONTAL, 0x4003A654
+
+.global dposdbg_sysconfig_horizontal_wrapper
+.extern dposdbg_sysconfig_trace_begin
+.extern dposdbg_sysconfig_horizontal_done
+.type dposdbg_sysconfig_horizontal_wrapper, %function
+dposdbg_sysconfig_horizontal_wrapper:
+    /* Replaces SysConfigExec call at 0x4003E724. */
+    push    {r0-r3, r12, lr}
+    bl      dposdbg_sysconfig_trace_begin
+    ldmia   sp, {r0-r3}
+    ldr     r12, =STOCK_APPLY_HORIZONTAL
+    blx     r12
+    str     r0, [sp]
+    bl      dposdbg_sysconfig_horizontal_done
+    pop     {r0-r3, r12, pc}
+.size dposdbg_sysconfig_horizontal_wrapper, . - dposdbg_sysconfig_horizontal_wrapper
+

@@ -50,6 +50,16 @@ int fat_read_file_sector(const fat_volume_t *volume,
                          uint32_t file_sector,
                          uint8_t *buffer);
 
+/*
+ * Overwrite an existing, already allocated file without changing FAT or
+ * directory metadata. The requested size must exactly match file->size and
+ * must be sector aligned.
+ */
+int fat_overwrite_existing_file(const fat_volume_t *volume,
+                                const fat_file_t *file,
+                                const uint8_t *data,
+                                uint32_t size);
+
 int fat_file_reader_init(fat_file_reader_t *reader,
                          const fat_volume_t *volume,
                          const fat_file_t *file);
