@@ -146,6 +146,52 @@ static void draw_usb_connect_row(const boot_context_t *context,
 }
 
 
+void boot_menu_show_usb_linux(void)
+{
+    console_clear();
+
+    console_set_color(CYAN);
+    console_putln("                        FNIRSI DPOS350P");
+    console_set_color(WHITE);
+    console_putln("                       USB MASS STORAGE");
+    console_putln("");
+    console_putln("");
+    console_putln("");
+    console_putln("");
+    console_putln("");
+
+    console_set_color(CYAN);
+    console_putln("    +----------------------+          +------------------+");
+    console_putln("    |                      |          |                  |");
+    console_putln("    |     /\\       /\\      |   USB    |      LINUX       |");
+    console_putln("    |____/  \\_____/  \\_____|=========>|       HOST       |");
+    console_putln("    |                      |          |                  |");
+    console_putln("    +----------------------+          +------------------+");
+    console_putln("");
+
+    console_set_color(WHITE);
+    console_putln("             DPOS350P                  MASS STORAGE");
+    console_putln("");
+    console_putln("");
+    console_putln("");
+
+    console_set_color(GREEN);
+    console_putln("                       LINUX MODE ACTIVE");
+    console_set_color(WHITE);
+    console_putln("                     READ / WRITE ENABLED");
+    console_putln("");
+    console_putln("");
+    console_putln("");
+    console_putln("");
+
+    console_set_color(YELLOW);
+    console_putln("                                  +----------------------+ ");
+    console_putln("                                  |    HOLD TO REBOOT    | ");
+    console_putln("                                  +----------------------+ ");
+
+    console_present();
+}
+
 static void boot_menu_draw(const boot_context_t *context,
                            boot_target_id_t selected,
                            uint32_t seconds_left,

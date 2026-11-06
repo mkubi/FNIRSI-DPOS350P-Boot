@@ -11,5 +11,7 @@ void boot_menu_show_error(boot_target_id_t selected, int error);
 boot_target_id_t boot_menu_run(const boot_context_t *context,
                                int touch_available);
 
+void boot_menu_show_usb_linux(void);
+
 #endif /* BOOT_MENU_H */
 

@@ -185,11 +185,12 @@ int main(void)
                 __asm__ volatile ("wfi");
         }
 
-        console_clear();
-        console_set_color(WHITE);
-        console_putln("USB LINUX");
-        console_putln("EXE2 LOAD OK");
-        console_present();
+        /*
+         * Persistent Linux USB status screen. Stock EXE2 USB mode does
+         * not redraw the framebuffer, so this remains visible while the
+         * device is exported as USB Mass Storage.
+         */
+        boot_menu_show_usb_linux();
 
     }
 
