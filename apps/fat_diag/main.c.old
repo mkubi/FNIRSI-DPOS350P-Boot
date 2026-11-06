@@ -1,0 +1,100 @@
+#include <stdint.h>
+
+#include "dposlab_abi.h"
+#include "cache.h"
+#include "irq.h"
+#include "timer.h"
+#include "sdmmc0.h"
+
+#define STOCK_EXE2_BASE              0x40000000U
+#define STOCK_EXE2_USB_ENTRY         0x40069018U
+#define STOCK_EXE2_ENTRY_WORD        0xE59FF018U
+
+#define EXE2_SD_SECTOR_SIZE          0x4009548CU
+#define EXE2_SD_ENABLED              0x40095490U
+#define EXE2_SD_GEOMETRY_CAPACITY    0x42E68A1CU
+#define EXE2_SD_SECONDARY_CAPACITY   0x42E68A20U
+#define EXE2_SD_CID0                 0x42E68C00U
+#define EXE2_SD_CID1                 0x42E68C04U
+#define EXE2_SD_CID2                 0x42E68C08U
+#define EXE2_SD_CID3                 0x42E68C0CU
+#define EXE2_SD_CARD_TYPE            0x42E68CB8U
+#define EXE2_SD_RCA                  0x42E68CBCU
+#define EXE2_SD_TOTAL_SECTORS        0x42E68CC0U
+
+#define EXE2_SD_SECTOR_SIZE_VALUE    0x200U
+#define EXE2_SD_ENABLED_VALUE        1U
+#define EXE2_SD_CARD_TYPE_VALUE      2U
+#define EXPECTED_CAPACITY_SECTORS    0x0003C800U
+
+typedef void (*stock_usb_entry_t)(void);
+
+static void stop(void) __attribute__((noreturn));
+static void stop(void)
+{
+    for (;;)
+        __asm__ volatile ("wfi");
+}
+
+static uint32_t read32(uint32_t address)
+{
+    return *(volatile const uint32_t *)(uintptr_t)address;
+}
+
+static void write32(uint32_t address, uint32_t value)
+{
+    *(volatile uint32_t *)(uintptr_t)address = value;
+}
+
+int main(const dposlab_handoff_t *handoff)
+{
+    sdmmc0_info_t sd;
+    stock_usb_entry_t stock_usb_entry;
+
+    if (handoff == 0 ||
+        handoff->magic != DPOSLAB_HANDOFF_MAGIC ||
+        handoff->version != DPOSLAB_HANDOFF_VERSION ||
+        handoff->size != sizeof(*handoff) ||
+        handoff->stage2_sp == 0U ||
+        (handoff->flags & DPOSLAB_FLAG_EXE2_LOADED) == 0U)
+        stop();
+
+    if (handoff->exe2_base != STOCK_EXE2_BASE ||
+        read32(STOCK_EXE2_BASE) != STOCK_EXE2_ENTRY_WORD)
+        stop();
+
+    irq_controller_init();
+    irq_enable_global();
+    timer_init();
+
+    if (sdmmc0_init(&sd) != 0 ||
+        sd.rca == 0U ||
+        sd.capacity_sectors != EXPECTED_CAPACITY_SECTORS)
+        stop();
+
+    write32(EXE2_SD_SECTOR_SIZE, EXE2_SD_SECTOR_SIZE_VALUE);
+    write32(EXE2_SD_ENABLED, EXE2_SD_ENABLED_VALUE);
+    write32(EXE2_SD_GEOMETRY_CAPACITY, sd.capacity_sectors);
+    write32(EXE2_SD_SECONDARY_CAPACITY, sd.capacity_sectors >> 1U);
+    write32(EXE2_SD_CID0, sd.cid[0]);
+    write32(EXE2_SD_CID1, sd.cid[1]);
+    write32(EXE2_SD_CID2, sd.cid[2]);
+    write32(EXE2_SD_CID3, sd.cid[3]);
+    write32(EXE2_SD_CARD_TYPE, EXE2_SD_CARD_TYPE_VALUE);
+    write32(EXE2_SD_RCA, sd.rca);
+    write32(EXE2_SD_TOTAL_SECTORS, sd.capacity_sectors);
+
+    cache_clean_range(EXE2_SD_SECTOR_SIZE, 8U);
+    cache_clean_range(EXE2_SD_GEOMETRY_CAPACITY, 8U);
+    cache_clean_range(EXE2_SD_CID0, 16U);
+    cache_clean_range(EXE2_SD_CARD_TYPE, 12U);
+    cache_invalidate_icache_all();
+    cache_invalidate_branch_predictor();
+    cache_dsb();
+    cache_isb();
+
+    stock_usb_entry = (stock_usb_entry_t)(uintptr_t)STOCK_EXE2_USB_ENTRY;
+    stock_usb_entry();
+
+    stop();
+}
