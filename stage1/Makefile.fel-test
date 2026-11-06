@@ -1,0 +1,55 @@
+CROSS_COMPILE ?= arm-none-eabi-
+CC := $(CROSS_COMPILE)gcc
+LD := $(CROSS_COMPILE)ld
+OBJCOPY := $(CROSS_COMPILE)objcopy
+OBJDUMP := $(CROSS_COMPILE)objdump
+NM := $(CROSS_COMPILE)nm
+SIZE := $(CROSS_COMPILE)size
+
+BUILD := ../build/stage1-fel-test
+TARGET := $(BUILD)/dpos_stage1_fel_recovery_test
+
+CFLAGS := -O2 -mcpu=cortex-a7 -mtune=cortex-a7 -marm -mno-thumb-interwork -mno-unaligned-access -ffreestanding -fno-builtin -fno-common -fno-stack-protector -fno-unwind-tables -fno-asynchronous-unwind-tables -nostdlib -Wall -Wextra -Werror -I../arch/r11 -I../drivers -I.
+
+OBJS := $(BUILD)/start_fel_test.o $(BUILD)/main_fel_test.o $(BUILD)/fel_recovery.o $(BUILD)/gpio.o $(BUILD)/spi0.o $(BUILD)/spi_nor_ro.o
+
+.PHONY: all clean check
+
+all: $(TARGET).bin $(TARGET).lst check
+	$(SIZE) $(TARGET).elf
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+$(BUILD)/start_fel_test.o: start_fel_test.S | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/main_fel_test.o: main_fel_test.c fel_recovery.h | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/fel_recovery.o: fel_recovery.c fel_recovery.h ../drivers/spi0.h | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/gpio.o: ../drivers/gpio.c ../drivers/gpio.h ../arch/r11/regs.h | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/spi0.o: ../drivers/spi0.c ../drivers/spi0.h ../drivers/gpio.h ../arch/r11/regs.h | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/spi_nor_ro.o: ../drivers/spi_nor_ro.c ../drivers/spi_nor_ro.h ../drivers/spi0.h | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(TARGET).elf: $(OBJS) link_fel_test.ld
+	$(LD) -T link_fel_test.ld -Map=$(TARGET).map $(OBJS) -o $@
+
+$(TARGET).bin: $(TARGET).elf
+	$(OBJCOPY) -O binary $< $@
+
+$(TARGET).lst: $(TARGET).elf
+	$(OBJDUMP) -D $< > $@
+
+check: $(TARGET).elf
+	@if $(NM) $(TARGET).elf | grep -q " U "; then $(NM) $(TARGET).elf | grep " U "; exit 1; fi
+
+clean:
+	rm -rf $(BUILD)

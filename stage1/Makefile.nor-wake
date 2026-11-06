@@ -1,0 +1,49 @@
+CROSS_COMPILE ?= arm-none-eabi-
+CC := $(CROSS_COMPILE)gcc
+LD := $(CROSS_COMPILE)ld
+OBJCOPY := $(CROSS_COMPILE)objcopy
+OBJDUMP := $(CROSS_COMPILE)objdump
+NM := $(CROSS_COMPILE)nm
+SIZE := $(CROSS_COMPILE)size
+
+BUILD := ../build/nor-wake-test
+TARGET := $(BUILD)/nor_wake_test
+
+CFLAGS := -O2 -mcpu=cortex-a7 -mtune=cortex-a7 -marm -mno-thumb-interwork -mno-unaligned-access -ffreestanding -fno-builtin -fno-common -fno-stack-protector -fno-unwind-tables -fno-asynchronous-unwind-tables -nostdlib -Wall -Wextra -Werror -I../arch/r11 -I../drivers -I.
+
+OBJS := $(BUILD)/start_nor_wake.o $(BUILD)/nor_wake_test.o $(BUILD)/gpio.o $(BUILD)/spi0.o
+
+.PHONY: all clean check
+
+all: $(TARGET).bin $(TARGET).lst check
+	$(SIZE) $(TARGET).elf
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+$(BUILD)/start_nor_wake.o: start_nor_wake.S | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/nor_wake_test.o: nor_wake_test.c ../drivers/spi0.h | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/gpio.o: ../drivers/gpio.c ../drivers/gpio.h ../arch/r11/regs.h | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/spi0.o: ../drivers/spi0.c ../drivers/spi0.h ../drivers/gpio.h ../arch/r11/regs.h | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(TARGET).elf: $(OBJS) link_nor_wake.ld
+	$(LD) -T link_nor_wake.ld -Map=$(TARGET).map $(OBJS) -o $@
+
+$(TARGET).bin: $(TARGET).elf
+	$(OBJCOPY) -O binary $< $@
+
+$(TARGET).lst: $(TARGET).elf
+	$(OBJDUMP) -D $< > $@
+
+check: $(TARGET).elf
+	@if $(NM) $(TARGET).elf | grep -q " U "; then $(NM) $(TARGET).elf | grep " U "; exit 1; fi
+
+clean:
+	rm -rf $(BUILD)

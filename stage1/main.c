@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include "result.h"
 #include "spi_nor_ro.h"
+#include "fel_recovery.h"
 
 extern uint8_t __image_start;
 
@@ -127,6 +128,7 @@ void stage1_stg2_report(uint32_t original_sp, uint32_t original_lr)
     const uint8_t *payload;
     uint32_t loaded = 0U;
     uint32_t crc = 0U;
+    uint32_t recovery_armed = 0U;
 
     result->magic = STAGE1_RESULT_MAGIC;
     result->state = STAGE1_STATE_ENTER;
@@ -151,6 +153,17 @@ void stage1_stg2_report(uint32_t original_sp, uint32_t original_lr)
     } else {
         goto done;
     }
+
+    /*
+     * Arm automatic FEL recovery only after positively identifying
+     * the expected W25Q16JV boot NOR.
+     */
+    if (jedec.manufacturer != 0xEFU ||
+        jedec.memory_type != 0x40U ||
+        jedec.capacity != 0x15U)
+        goto done;
+
+    recovery_armed = 1U;
 
     result->header_read_result =
         spi_nor_read(STAGE2_NOR_OFFSET, (uint8_t *)&header,
@@ -192,4 +205,12 @@ done:
         result->calculated_crc32 == header.payload_crc32) {
         stage2_handoff(header.entry_address);
     }
+
+    /*
+     * The expected boot NOR is alive, but Stage 2 was not validated
+     * successfully. Use the HW-confirmed Deep-Power-Down + watchdog
+     * sequence so BootROM falls back to FEL.
+     */
+    if (recovery_armed)
+        stage1_enter_fel_recovery();
 }
