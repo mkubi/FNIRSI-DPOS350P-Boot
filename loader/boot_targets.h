@@ -11,7 +11,8 @@ typedef enum {
     BOOT_TARGET_DEBUG_EXE2_FAT = 0,
     BOOT_TARGET_CUSTOM,
     BOOT_TARGET_ORIGINAL_SCOPE,
-    BOOT_TARGET_USB_CONNECT,
+    BOOT_TARGET_USB_CONNECT_LEGACY,
+    BOOT_TARGET_USB_CONNECT_LINUX,
     BOOT_TARGET_COUNT,
     BOOT_TARGET_NONE = 0xFF
 } boot_target_id_t;
@@ -26,7 +27,8 @@ typedef struct {
     debug_exe2_app_t debug_exe2;
     custom_app_t custom;
     original_app_t scope;
-    original_app_t usb;
+    original_app_t usb_legacy;
+    original_app_t usb_linux;
 } boot_context_t;
 
 const char *boot_target_name(boot_target_id_t id);

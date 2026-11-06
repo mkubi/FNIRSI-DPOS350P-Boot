@@ -97,6 +97,55 @@ static void draw_target(const boot_context_t *context,
 }
 
 
+static void draw_usb_connect_row(const boot_context_t *context,
+                                 boot_target_id_t selected)
+{
+    const boot_target_status_t *legacy;
+    const boot_target_status_t *linux_target;
+
+    legacy =
+        &context->status[BOOT_TARGET_USB_CONNECT_LEGACY];
+    linux_target =
+        &context->status[BOOT_TARGET_USB_CONNECT_LINUX];
+
+    console_putln("");
+
+    console_set_color(WHITE);
+    console_putln("    USB CONNECT");
+
+    console_set_color(
+        selected == BOOT_TARGET_USB_CONNECT_LEGACY
+            ? YELLOW : WHITE
+    );
+    console_puts(
+        selected == BOOT_TARGET_USB_CONNECT_LEGACY
+            ? ">>  LEGACY "
+            : "    LEGACY "
+    );
+
+    console_set_color(legacy->available ? GREEN : GRAY);
+    console_puts(legacy->available ? "READY" : "N/A");
+
+    console_set_color(WHITE);
+    console_puts("    |    ");
+
+    console_set_color(
+        selected == BOOT_TARGET_USB_CONNECT_LINUX
+            ? YELLOW : WHITE
+    );
+    console_puts(
+        selected == BOOT_TARGET_USB_CONNECT_LINUX
+            ? ">>  LINUX "
+            : "    LINUX "
+    );
+
+    console_set_color(linux_target->available ? GREEN : GRAY);
+    console_putln(linux_target->available ? "READY" : "N/A");
+
+    console_putln("");
+}
+
+
 static void boot_menu_draw(const boot_context_t *context,
                            boot_target_id_t selected,
                            uint32_t seconds_left,
@@ -133,9 +182,8 @@ static void boot_menu_draw(const boot_context_t *context,
         selected
     );
 
-    draw_target(
+    draw_usb_connect_row(
         context,
-        BOOT_TARGET_USB_CONNECT,
         selected
     );
 
@@ -211,8 +259,12 @@ static boot_target_id_t boot_menu_hit_test(uint16_t x,
     if (y >= 220U && y < 310U)
         return BOOT_TARGET_ORIGINAL_SCOPE;
 
-    if (y >= 310U && y < 400U)
-        return BOOT_TARGET_USB_CONNECT;
+    if (y >= 310U && y < 400U) {
+        if (x < 512U)
+            return BOOT_TARGET_USB_CONNECT_LEGACY;
+
+        return BOOT_TARGET_USB_CONNECT_LINUX;
+    }
 
     return BOOT_TARGET_NONE;
 }

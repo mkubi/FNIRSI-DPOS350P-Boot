@@ -9,6 +9,7 @@
 #include "start.h"
 #include "dposdbg.h"
 #include "dposlab.h"
+#include "usb_linux.h"
 
 #define BLACK 0x0000U
 #define WHITE 0xFFFFU
@@ -169,6 +170,30 @@ int main(void)
     }
 
     /*
+     * Linux-compatible USB target:
+     * patch the stock EXE2 System_Init call in RAM so it enters the
+     * resident Stage 2 USB hook.
+     */
+    if (selected == BOOT_TARGET_USB_CONNECT_LINUX) {
+
+        load_result = usb_linux_install_patch(image);
+
+        if (load_result != LOADER_OK) {
+            boot_menu_show_error(selected, load_result);
+
+            for (;;)
+                __asm__ volatile ("wfi");
+        }
+
+        console_clear();
+        console_set_color(WHITE);
+        console_putln("USB LINUX");
+        console_putln("EXE2 LOAD OK");
+        console_present();
+
+    }
+
+    /*
      * DEBUG EXE2 timing checkpoint.
      *
      * No artificial delay is used here. Once this screen is visible,
@@ -189,7 +214,8 @@ int main(void)
         dposlab_handoff.magic = DPOSLAB_HANDOFF_MAGIC;
         dposlab_handoff.version = DPOSLAB_HANDOFF_VERSION;
         dposlab_handoff.size = (uint32_t)sizeof(dposlab_handoff);
-        dposlab_handoff.flags = DPOSLAB_FLAG_EXE2_LOADED;
+        dposlab_handoff.flags = DPOSLAB_FLAG_EXE2_LOADED |
+                                DPOSLAB_FLAG_SD_STATE_VALID;
         dposlab_handoff.stage2_sp = 0U;
         dposlab_handoff.exe2_base = context.debug_exe2.image.load_address;
         dposlab_handoff.exe2_size = context.debug_exe2.image.image_size;
@@ -197,6 +223,13 @@ int main(void)
         dposlab_handoff.dposlab_base = dposlab_image.load_address;
         dposlab_handoff.dposlab_size = dposlab_image.image_size;
         dposlab_handoff.dposlab_entry = dposlab_image.entry_address;
+        dposlab_handoff.sd_rca = context.debug_exe2.sd_info.rca;
+        dposlab_handoff.sd_high_capacity = context.debug_exe2.sd_info.high_capacity;
+        dposlab_handoff.sd_capacity_sectors = context.debug_exe2.sd_info.capacity_sectors;
+        dposlab_handoff.sd_cid[0] = context.debug_exe2.sd_info.cid[0];
+        dposlab_handoff.sd_cid[1] = context.debug_exe2.sd_info.cid[1];
+        dposlab_handoff.sd_cid[2] = context.debug_exe2.sd_info.cid[2];
+        dposlab_handoff.sd_cid[3] = context.debug_exe2.sd_info.cid[3];
 
         dposlab_start(&dposlab_image, &dposlab_handoff);
     }

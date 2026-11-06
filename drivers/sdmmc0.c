@@ -55,7 +55,8 @@
 
 /* Keep identification at 400 kHz, then use the HW-tested 24 MHz data clock. */
 #define SDMMC0_IDENT_CLOCK_REG 0x8002000EU
-#define SDMMC0_DATA_CLOCK_REG  0x80000000U
+#define SDMMC0_DATA_CLOCK_REG  0x8140030BU
+#define SDMMC0_DATA_CKCR       0x00030000U
 
 static sdmmc0_info_t *diag_info;
 static uint32_t card_rca;
@@ -120,7 +121,7 @@ static int set_card_clock_reg(uint32_t ccu_clock_reg)
     mmio_write32(CCU_SD0_CLK, ccu_clock_reg);
     delay(1U);
 
-    mmio_write32(SD_CKCR, 1U << 16);
+    mmio_write32(SD_CKCR, SDMMC0_DATA_CKCR);
     r = update_clock();
     if (r)
         return -2;
@@ -190,93 +191,55 @@ static int send_cmd_long(uint32_t idx, uint32_t arg, uint32_t flags,
     return 0;
 }
 
-static uint32_t decode_csd_v2_words(const uint32_t words[4])
+static uint32_t decode_capacity_sectors(const uint32_t csd[4])
 {
-    uint32_t csd_structure;
+    uint32_t resp_18 = csd[3];
+    uint32_t resp_14 = csd[2];
+    uint32_t resp_10 = csd[1];
+    uint32_t read_bl_len;
+    uint32_t c_size_mult;
     uint32_t c_size;
-    uint32_t sectors;
+    uint32_t blocks;
 
-    /* words[0] contains CSD bits 31:0; words[3] contains bits 127:96. */
-    csd_structure = (words[3] >> 30) & 3U;
-    if (csd_structure != 1U)
-        return 0U;
+    /*
+     * Mirror stock 0x40068134 exactly for the response-word layout used by
+     * the V3s SDC controller.  Stock reads the CMD9 response structure as:
+     *   +0x18 = RESP0, +0x14 = RESP1, +0x10 = RESP2, +0x0c = RESP3.
+     * send_cmd_long() stores controller RESP0..RESP3 as csd[0..3].
+     * Stock command state places RESP0 at +0x0c through RESP3 at +0x18,
+     * so the capacity parser sees +0x18/+0x14/+0x10 as csd[3]/[2]/[1].
+     */
+    if (diag_info) {
+        diag_info->decode_resp18 = resp_18;
+        diag_info->decode_resp14 = resp_14;
+        diag_info->decode_resp10 = resp_10;
+    }
 
-    /* SDHC/SDXC CSD v2.0: C_SIZE is bits 69:48. */
-    c_size = ((words[2] & 0x3FU) << 16)
-           | ((words[1] >> 16) & 0xFFFFU);
+    if ((resp_18 & 0xC0000000U) != 0U && card_high_capacity != 3U) {
+        /* Stock modern-CSD branch @ 0x400681B0..0x400681C8. */
+        c_size = (((resp_14 & 0x3FU) << 16) | (resp_10 >> 16)) + 1U;
+        if (diag_info) {
+            diag_info->decode_path = 2U;
+            diag_info->decode_c_size = c_size;
+            diag_info->decode_x200 = c_size << 9;
+            diag_info->decode_x400 = c_size << 10;
+        }
+        return c_size << 10;
+    }
 
-    /* Capacity in 512-byte sectors is (C_SIZE + 1) * 1024. */
-    if (c_size >= 0x3FFFFFU)
-        return 0U;
+    /* Stock legacy-CSD branch @ 0x400681CC..0x40068208. */
+    c_size = (((resp_14 & 0x3FFU) << 2) | (resp_10 >> 30)) + 1U;
+    c_size_mult = ((resp_10 >> 15) & 7U) + 2U;
+    read_bl_len = (resp_14 >> 16) & 0xFU;
+    blocks = (1U << read_bl_len) * (1U << c_size_mult) * c_size;
 
-    sectors = (c_size + 1U) * 1024U;
-
-    /* Reject clearly implausible results caused by response alignment/order. */
-    if (sectors < 0x00020000U)
-        return 0U;
-
-    return sectors;
-}
-
-static void reverse_words(const uint32_t input[4], uint32_t output[4])
-{
-    output[0] = input[3];
-    output[1] = input[2];
-    output[2] = input[1];
-    output[3] = input[0];
-}
-
-static void shift_words_right8(const uint32_t input[4], uint32_t output[4])
-{
-    output[0] = (input[0] >> 8) | (input[1] << 24);
-    output[1] = (input[1] >> 8) | (input[2] << 24);
-    output[2] = (input[2] >> 8) | (input[3] << 24);
-    output[3] = input[3] >> 8;
-}
-
-static void shift_words_left8(const uint32_t input[4], uint32_t output[4])
-{
-    output[3] = (input[3] << 8) | (input[2] >> 24);
-    output[2] = (input[2] << 8) | (input[1] >> 24);
-    output[1] = (input[1] << 8) | (input[0] >> 24);
-    output[0] = input[0] << 8;
-}
-
-static uint32_t decode_capacity_sectors(const uint32_t raw[4])
-{
-    uint32_t candidate[4];
-    uint32_t shifted[4];
-    uint32_t sectors;
-
-    /* Try RESP0..RESP3 as low-to-high 32-bit CSD words. */
-    sectors = decode_csd_v2_words(raw);
-    if (sectors != 0U)
-        return sectors;
-
-    /* Some Allwinner response paths expose the four words in reverse order. */
-    reverse_words(raw, candidate);
-    sectors = decode_csd_v2_words(candidate);
-    if (sectors != 0U)
-        return sectors;
-
-    /* R2 responses may include/exclude the leading CRC framing byte. */
-    shift_words_right8(raw, shifted);
-    sectors = decode_csd_v2_words(shifted);
-    if (sectors != 0U)
-        return sectors;
-
-    shift_words_left8(raw, shifted);
-    sectors = decode_csd_v2_words(shifted);
-    if (sectors != 0U)
-        return sectors;
-
-    shift_words_right8(candidate, shifted);
-    sectors = decode_csd_v2_words(shifted);
-    if (sectors != 0U)
-        return sectors;
-
-    shift_words_left8(candidate, shifted);
-    return decode_csd_v2_words(shifted);
+    if (diag_info) {
+        diag_info->decode_path = 1U;
+        diag_info->decode_c_size = c_size;
+        diag_info->decode_x200 = blocks >> 10;
+        diag_info->decode_x400 = blocks >> 9;
+    }
+    return blocks >> 9;
 }
 
 int sdmmc0_init(sdmmc0_info_t *info)
@@ -292,11 +255,22 @@ int sdmmc0_init(sdmmc0_info_t *info)
     info->ocr = 0U;
     info->rca = 0U;
     info->high_capacity = 0U;
+    info->cid[0] = 0U;
+    info->cid[1] = 0U;
+    info->cid[2] = 0U;
+    info->cid[3] = 0U;
     info->csd[0] = 0U;
     info->csd[1] = 0U;
     info->csd[2] = 0U;
     info->csd[3] = 0U;
     info->capacity_sectors = 0U;
+    info->decode_path = 0U;
+    info->decode_resp18 = 0U;
+    info->decode_resp14 = 0U;
+    info->decode_resp10 = 0U;
+    info->decode_c_size = 0U;
+    info->decode_x200 = 0U;
+    info->decode_x400 = 0U;
     info->last_cmd = 0U;
     info->last_risr = 0U;
     info->last_cmdr = 0U;
@@ -407,8 +381,9 @@ int sdmmc0_init(sdmmc0_info_t *info)
     info->ocr = ocr;
     info->high_capacity = (ocr >> 30) & 1U;
 
-    r = send_cmd(2U, 0U,
-                 CMD_RESP | CMD_LONG_RESP | CMD_CHECK_CRC, &resp);
+    /* CMD2: capture the complete 136-bit CID response as four controller words. */
+    r = send_cmd_long(2U, 0U,
+                      CMD_RESP | CMD_CHECK_CRC, info->cid);
     if (r) {
         info->last_error = r;
         return r;
@@ -442,24 +417,73 @@ int sdmmc0_init(sdmmc0_info_t *info)
         return r;
     }
 
-    /* Standard-capacity cards use byte addressing and require CMD16. */
-    if (!card_high_capacity) {
-        r = send_cmd(16U, SDMMC0_SECTOR_SIZE,
-                     CMD_RESP | CMD_CHECK_CRC, &resp);
-        if (r) {
-            info->last_error = r;
-            return r;
-        }
+    /*
+     * S0.6: reproduce the stock 0x4006840C data-mode finalization that is
+     * required by the stock sector reader used behind USB MSC.
+     *
+     * STATIC-CONFIRMED stock order for the active card path:
+     *   CMD55(RCA), CMD6(arg=2), BWDR=1, CMD16(512), CMD7(arg=0).
+     * The first two commands switch the card before the controller is moved
+     * to 4-bit mode.  Do not write BWDR=1 without the card-side command.
+     */
+    r = send_cmd(55U, card_rca,
+                 CMD_RESP | CMD_CHECK_CRC, &resp);
+    if (r) {
+        info->last_error = -55;
+        return -55;
     }
 
-    /* Switch to the stress-tested 24 MHz data clock. */
+    r = send_cmd(6U, 2U,
+                 CMD_RESP | CMD_CHECK_CRC, &resp);
+    if (r) {
+        info->last_error = -56;
+        return -56;
+    }
+
+    mmio_write32(SD_BWDR, 1U);
+
+    /* Match the HW-confirmed stock final SDC0 clock fingerprint. */
     r = set_card_clock_reg(SDMMC0_DATA_CLOCK_REG);
     if (r) {
-        /* Recovery-first fallback to the proven 400 kHz baseline. */
-        (void)set_card_clock_reg(SDMMC0_IDENT_CLOCK_REG);
+        info->last_error = -57;
+        return -57;
     }
 
+    r = send_cmd(16U, SDMMC0_SECTOR_SIZE,
+                 CMD_RESP | CMD_CHECK_CRC, &resp);
+    if (r) {
+        info->last_error = -58;
+        return -58;
+    }
+
+    /*
+     * Keep the card selected in TRANSFER state for the canonical custom
+     * block-device path.  The Stage 2 updater calls FAT sector I/O directly
+     * after sdmmc0_init(), so do not issue the stock handoff CMD7(0) here.
+     */
     capture_state();
+    return 0;
+}
+
+int sdmmc0_prepare_stock_handoff(void)
+{
+    int r;
+
+    /*
+     * Stock handoff finalization.
+     *
+     * CMD7 with argument 0 deselects the currently selected card.
+     * This helper intentionally does not depend on card_rca or diag_info:
+     * FATDIAG is a separate Stage 3 executable and therefore does not
+     * inherit the Stage 2 driver's C static state.
+     *
+     * Do not move this command into sdmmc0_init().  The custom FAT/block
+     * path requires the card to remain selected after initialization.
+     */
+    r = send_cmd(7U, 0U, 0U, NULL);
+    if (r)
+        return -59;
+
     return 0;
 }
 

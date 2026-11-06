@@ -6,6 +6,7 @@ OBJCOPY := $(CROSS_COMPILE)objcopy
 OBJDUMP := $(CROSS_COMPILE)objdump
 SIZE := $(CROSS_COMPILE)size
 BUILD := build
+USB_LINUX_PAYLOAD := build/apps/usb_linux/USB_LINUX.bin
 TARGET := $(BUILD)/dpos_display_spl_clone
 
 MKSTG2 := tools/mkstg2.py
@@ -20,6 +21,7 @@ CFLAGS := -O2 -mcpu=cortex-a7 -marm -mno-unaligned-access \
 
 SOURCES_C := \
     arch/r11/cache.c \
+    arch/r11/irq.c \
     arch/r11/mmu.c \
     arch/r11/timer.c \
     drivers/gpio.c \
@@ -34,6 +36,7 @@ SOURCES_C := \
     loader/dposdbg.c \
     loader/dposlab.c \
     loader/original.c \
+    loader/usb_linux.c \
     loader/start.c \
     loader/boot_targets.c \
     ui/font8x8.c \
@@ -43,9 +46,15 @@ SOURCES_C := \
 SOURCES_S := \
     arch/r11/start.S \
     loader/jump.S \
-    loader/dposlab_jump.S
+    loader/dposlab_jump.S \
+    loader/usb_linux_blob.S
 
 OBJECTS := $(patsubst %.c,$(BUILD)/%.o,$(SOURCES_C)) $(patsubst %.S,$(BUILD)/%.o,$(SOURCES_S))
+$(USB_LINUX_PAYLOAD):
+	$(MAKE) -C apps/usb_linux
+
+$(BUILD)/loader/usb_linux_blob.o: $(USB_LINUX_PAYLOAD)
+
 .PHONY: all clean check stage1 stage1-clean dposdbg dposdbg-clean dposlab dposlab-clean
 
 stage1:

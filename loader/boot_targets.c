@@ -17,8 +17,10 @@ const char *boot_target_name(boot_target_id_t id)
         return "CUSTOM APPLICATION";
     case BOOT_TARGET_ORIGINAL_SCOPE:
         return "ORIGINAL OSCILLOSCOPE";
-    case BOOT_TARGET_USB_CONNECT:
-        return "USB CONNECT";
+    case BOOT_TARGET_USB_CONNECT_LEGACY:
+        return "USB CONNECT LEGACY";
+    case BOOT_TARGET_USB_CONNECT_LINUX:
+        return "USB CONNECT LINUX";
     default:
         return "UNKNOWN";
     }
@@ -50,10 +52,23 @@ void boot_targets_probe(boot_context_t *context)
     context->status[BOOT_TARGET_ORIGINAL_SCOPE].available =
         result == LOADER_OK;
 
+    /*
+     * Original EXE1 updater/patcher. Keep as the legacy service and
+     * recovery path even when the EXE2 USB implementation is available.
+     */
     result = original_app_probe(ORIGINAL_IMAGE_EXE1_USB,
-                                &context->usb);
-    context->status[BOOT_TARGET_USB_CONNECT].probe_result = result;
-    context->status[BOOT_TARGET_USB_CONNECT].available =
+                                &context->usb_legacy);
+    context->status[BOOT_TARGET_USB_CONNECT_LEGACY].probe_result = result;
+    context->status[BOOT_TARGET_USB_CONNECT_LEGACY].available =
+        result == LOADER_OK;
+
+    /*
+     * Linux-compatible USB path based on stock EXE2 loaded from SPI NOR.
+     */
+    result = original_app_probe(ORIGINAL_IMAGE_EXE2_SCOPE,
+                                &context->usb_linux);
+    context->status[BOOT_TARGET_USB_CONNECT_LINUX].probe_result = result;
+    context->status[BOOT_TARGET_USB_CONNECT_LINUX].available =
         result == LOADER_OK;
 }
 
@@ -71,8 +86,11 @@ boot_target_id_t boot_targets_default(const boot_context_t *context)
     if (context->status[BOOT_TARGET_ORIGINAL_SCOPE].available)
         return BOOT_TARGET_ORIGINAL_SCOPE;
 
-    if (context->status[BOOT_TARGET_USB_CONNECT].available)
-        return BOOT_TARGET_USB_CONNECT;
+    if (context->status[BOOT_TARGET_USB_CONNECT_LINUX].available)
+        return BOOT_TARGET_USB_CONNECT_LINUX;
+
+    if (context->status[BOOT_TARGET_USB_CONNECT_LEGACY].available)
+        return BOOT_TARGET_USB_CONNECT_LEGACY;
 
     return BOOT_TARGET_NONE;
 }
@@ -92,8 +110,10 @@ int boot_target_load(boot_context_t *context, boot_target_id_t id)
         return custom_app_load(&context->custom);
     case BOOT_TARGET_ORIGINAL_SCOPE:
         return original_app_load(&context->scope);
-    case BOOT_TARGET_USB_CONNECT:
-        return original_app_load(&context->usb);
+    case BOOT_TARGET_USB_CONNECT_LEGACY:
+        return original_app_load(&context->usb_legacy);
+    case BOOT_TARGET_USB_CONNECT_LINUX:
+        return original_app_load(&context->usb_linux);
     default:
         return LOADER_ERR_ARGUMENT;
     }
@@ -112,8 +132,10 @@ const loader_image_t *boot_target_image(const boot_context_t *context,
         return &context->custom.image;
     case BOOT_TARGET_ORIGINAL_SCOPE:
         return &context->scope.image;
-    case BOOT_TARGET_USB_CONNECT:
-        return &context->usb.image;
+    case BOOT_TARGET_USB_CONNECT_LEGACY:
+        return &context->usb_legacy.image;
+    case BOOT_TARGET_USB_CONNECT_LINUX:
+        return &context->usb_linux.image;
     default:
         return NULL;
     }
