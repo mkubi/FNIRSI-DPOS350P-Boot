@@ -19,9 +19,11 @@ CFLAGS := -O2 -mcpu=cortex-a7 -mtune=cortex-a7 -marm \
 
 SOURCES_C := \
     main.c \
+    touch_reboot.c \
     $(ROOT)/arch/r11/irq.c \
     $(ROOT)/arch/r11/timer.c \
     $(ROOT)/drivers/gpio.c \
+    $(ROOT)/drivers/gt911.c \
     $(ROOT)/drivers/sdmmc0.c
 
 SOURCES_S := start.S

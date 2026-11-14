@@ -3,6 +3,7 @@
 #include "irq.h"
 #include "sdmmc0.h"
 #include "timer.h"
+#include "touch_reboot.h"
 
 #define STOCK_USB_CONNECT_ENTRY      0x40069018U
 
@@ -70,6 +71,9 @@ int main(void)
         stop();
 
     publish_stock_sd_state(&info);
+
+    /* Optional UI feature: USB remains usable if touch setup fails. */
+    (void)touch_reboot_init();
 
     ((stock_void_fn_t)(uintptr_t)STOCK_USB_CONNECT_ENTRY)();
     stop();
