@@ -26,7 +26,7 @@ DRAM_CFLAGS := $(CFLAGS) \
 
 OBJS := $(BUILD)/start_bt0.o $(BUILD)/main.o $(BUILD)/gpio.o \
         $(BUILD)/spi0.o $(BUILD)/spi_nor_ro.o \
-        $(BUILD)/fel_recovery.o \
+        $(BUILD)/fel.o \
         $(BUILD)/sys-clock.o $(BUILD)/sys-dram.o \
         $(BUILD)/memcpy.o $(BUILD)/memset.o
 
@@ -56,7 +56,7 @@ $(BUILD)/spi0.o: ../drivers/spi0.c ../drivers/spi0.h ../drivers/gpio.h ../arch/r
 $(BUILD)/spi_nor_ro.o: ../drivers/spi_nor_ro.c ../drivers/spi_nor_ro.h ../drivers/spi0.h | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILD)/fel_recovery.o: fel_recovery.c fel_recovery.h ../drivers/spi0.h | $(BUILD)
+$(BUILD)/fel.o: ../arch/r11/fel.c ../arch/r11/fel.h ../drivers/spi0.h | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/sys-clock.o: $(XFEL)/source/sys-clock.c | $(BUILD)

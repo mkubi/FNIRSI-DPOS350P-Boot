@@ -8,6 +8,7 @@
 #include "stage2_update.h"
 #include "stage2_version.h"
 #include "watchdog.h"
+#include "fel.h"
 
 
 /*
@@ -60,11 +61,6 @@ typedef enum {
     MENU_ACTION_BACK
 } menu_action_t;
 
-typedef enum {
-    TOOLS_MESSAGE_NONE = 0,
-    TOOLS_MESSAGE_UPDATE_NOT_IMPLEMENTED,
-    TOOLS_MESSAGE_FEL_NOT_IMPLEMENTED
-} tools_message_t;
 
 
 static char hex_digit(uint8_t value)
@@ -475,6 +471,76 @@ static int stage2_update_confirm_gui(uint32_t installed_version,
     }
 }
 
+static int fel_confirm_gui(void)
+{
+    gt911_touch_t touch;
+    int armed = 0; /* 0 none, 1 cancel, 2 enter */
+    uint32_t next_poll;
+
+    console_clear();
+    console_set_color(DISPLAY_COLOR_CYAN);
+    console_putln("ENTER FEL MODE?");
+    console_set_color(DISPLAY_COLOR_WHITE);
+    console_putln("--------------------------------");
+    console_putln("USB FEL RECOVERY MODE");
+    console_putln("");
+    console_set_color(DISPLAY_COLOR_RED);
+    console_putln("NORMAL BOOT WILL BE TEMPORARILY DISABLED");
+
+    console_set_cursor(1U, UPDATE_CANCEL_ROW);
+    console_set_color(DISPLAY_COLOR_YELLOW);
+    console_putln("CANCEL");
+    console_set_cursor(1U, UPDATE_INSTALL_ROW);
+    console_set_color(DISPLAY_COLOR_GREEN);
+    console_putln("ENTER FEL");
+    console_present_swap_only();
+
+    next_poll = timer_get_ms();
+    for (;;) {
+        uint32_t now = timer_get_ms();
+        int rc;
+        int hit = 0;
+        if ((int32_t)(now - next_poll) < 0)
+            continue;
+        next_poll = now + TOUCH_POLL_INTERVAL_MS;
+        rc = gt911_poll(&touch);
+        if (rc < 0)
+            return 0;
+        if (rc == 0)
+            continue;
+        if (touch.x >= UPDATE_CONFIRM_X_MIN && touch.x <= UPDATE_CONFIRM_X_MAX) {
+            if (touch.y >= UPDATE_CANCEL_Y && touch.y < UPDATE_CANCEL_Y + UPDATE_CONFIRM_HEIGHT)
+                hit = 1;
+            else if (touch.y >= UPDATE_INSTALL_Y && touch.y < UPDATE_INSTALL_Y + UPDATE_CONFIRM_HEIGHT)
+                hit = 2;
+        }
+        if (touch.state == GT911_TOUCH_PRESS)
+            armed = hit;
+        else if (touch.state == GT911_TOUCH_DRAG)
+            armed = hit;
+        else if (touch.state == GT911_TOUCH_RELEASE) {
+            if (armed != 0 && armed == hit)
+                return armed == 2;
+            armed = 0;
+        }
+    }
+}
+
+static void stage2_enter_fel(void)
+{
+    if (!fel_confirm_gui())
+        return;
+
+    console_clear();
+    console_set_color(DISPLAY_COLOR_CYAN);
+    console_putln("ENTERING FEL...");
+    console_set_color(DISPLAY_COLOR_WHITE);
+    console_putln("WAIT FOR USB FEL ENUMERATION");
+    console_present_swap_only();
+    timer_delay_ms(500U);
+    enter_fel_recovery();
+}
+
 static void stage2_update_show(void)
 {
     static stage2_update_info_t info;
@@ -609,7 +675,6 @@ static void stage2_update_show(void)
 
 static void tools_menu_draw(const boot_context_t *context,
                             menu_action_t armed_action,
-                            tools_message_t message,
                             uint16_t touch_x,
                             uint16_t touch_y,
                             int have_touch)
@@ -643,8 +708,8 @@ static void tools_menu_draw(const boot_context_t *context,
                    armed_action == MENU_ACTION_STOCK_UPDATER);
 
     draw_menu_item("ENTER FEL",
-                   "    NOT IMPLEMENTED",
-                   DISPLAY_COLOR_GRAY,
+                   "    READY",
+                   DISPLAY_COLOR_GREEN,
                    armed_action == MENU_ACTION_ENTER_FEL);
 
     draw_menu_item("< BACK",
@@ -652,16 +717,8 @@ static void tools_menu_draw(const boot_context_t *context,
                    DISPLAY_COLOR_WHITE,
                    armed_action == MENU_ACTION_BACK);
 
-    if (message == TOOLS_MESSAGE_UPDATE_NOT_IMPLEMENTED) {
-        console_set_color(DISPLAY_COLOR_YELLOW);
-        console_putln("STAGE 2 UPDATE: NOT IMPLEMENTED");
-    } else if (message == TOOLS_MESSAGE_FEL_NOT_IMPLEMENTED) {
-        console_set_color(DISPLAY_COLOR_YELLOW);
-        console_putln("FEL ENTRY: NOT IMPLEMENTED");
-    } else {
-        console_set_color(DISPLAY_COLOR_WHITE);
-        console_putln("SELECT TOOL");
-    }
+    console_set_color(DISPLAY_COLOR_WHITE);
+    console_putln("SELECT TOOL");
 
     if (have_touch) {
         console_set_color(DISPLAY_COLOR_WHITE);
@@ -764,7 +821,6 @@ boot_target_id_t boot_menu_run(const boot_context_t *context,
     menu_action_t action;
     menu_action_t armed_action;
     menu_page_t armed_page;
-    tools_message_t tools_message;
 
     gt911_touch_t touch;
 
@@ -791,7 +847,6 @@ boot_target_id_t boot_menu_run(const boot_context_t *context,
     page = MENU_PAGE_BOOT;
     armed_page = MENU_PAGE_BOOT;
     armed_action = MENU_ACTION_NONE;
-    tools_message = TOOLS_MESSAGE_NONE;
 
     shown = 0xFFFFFFFFU;
     seconds_left = BOOT_MENU_AUTOBOOT_SECONDS;
@@ -917,7 +972,6 @@ boot_target_id_t boot_menu_run(const boot_context_t *context,
                 tools_menu_draw(
                     context,
                     armed_action,
-                    tools_message,
                     last_touch_x,
                     last_touch_y,
                     have_touch
@@ -962,7 +1016,7 @@ boot_target_id_t boot_menu_run(const boot_context_t *context,
                 boot_menu_draw(context, selected, armed_action, 0U, touch_available, 0,
                                last_touch_x, last_touch_y, have_touch);
             } else {
-                tools_menu_draw(context, armed_action, tools_message, last_touch_x,
+                tools_menu_draw(context, armed_action, last_touch_x,
                                 last_touch_y, have_touch);
             }
             continue;
@@ -997,7 +1051,7 @@ boot_target_id_t boot_menu_run(const boot_context_t *context,
                                    touch_available, 0, last_touch_x,
                                    last_touch_y, have_touch);
                 else
-                    tools_menu_draw(context, armed_action, tools_message,
+                    tools_menu_draw(context, armed_action,
                                     last_touch_x, last_touch_y, have_touch);
             }
             continue;
@@ -1022,7 +1076,7 @@ boot_target_id_t boot_menu_run(const boot_context_t *context,
                 boot_menu_draw(context, selected, armed_action, 0U, touch_available, 0,
                                last_touch_x, last_touch_y, have_touch);
             else
-                tools_menu_draw(context, armed_action, tools_message, last_touch_x,
+                tools_menu_draw(context, armed_action, last_touch_x,
                                 last_touch_y, have_touch);
             continue;
         }
@@ -1033,12 +1087,10 @@ boot_target_id_t boot_menu_run(const boot_context_t *context,
         if (page == MENU_PAGE_BOOT) {
             if (action == MENU_ACTION_OPEN_TOOLS) {
                 page = MENU_PAGE_TOOLS;
-                tools_message = TOOLS_MESSAGE_NONE;
 
                 tools_menu_draw(
                     context,
                     armed_action,
-                    tools_message,
                     last_touch_x,
                     last_touch_y,
                     have_touch
@@ -1088,7 +1140,6 @@ boot_target_id_t boot_menu_run(const boot_context_t *context,
 
         if (action == MENU_ACTION_BACK) {
             page = MENU_PAGE_BOOT;
-            tools_message = TOOLS_MESSAGE_NONE;
 
             boot_menu_draw(
                 context,
@@ -1107,13 +1158,11 @@ boot_target_id_t boot_menu_run(const boot_context_t *context,
 
         if (action == MENU_ACTION_UPDATE_STAGE2) {
             stage2_update_show();
-            tools_message = TOOLS_MESSAGE_NONE;
             armed_action = MENU_ACTION_NONE;
 
             tools_menu_draw(
                 context,
                 armed_action,
-                tools_message,
                 last_touch_x,
                 last_touch_y,
                 have_touch
@@ -1123,12 +1172,11 @@ boot_target_id_t boot_menu_run(const boot_context_t *context,
         }
 
         if (action == MENU_ACTION_ENTER_FEL) {
-            tools_message = TOOLS_MESSAGE_FEL_NOT_IMPLEMENTED;
+            stage2_enter_fel();
 
             tools_menu_draw(
                 context,
                 armed_action,
-                tools_message,
                 last_touch_x,
                 last_touch_y,
                 have_touch
@@ -1147,7 +1195,6 @@ boot_target_id_t boot_menu_run(const boot_context_t *context,
         tools_menu_draw(
             context,
             armed_action,
-            tools_message,
             last_touch_x,
             last_touch_y,
             have_touch

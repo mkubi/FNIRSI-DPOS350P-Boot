@@ -26,6 +26,7 @@ SOURCES_C := \
     arch/r11/mmu.c \
     arch/r11/timer.c \
     arch/r11/watchdog.c \
+    arch/r11/fel.c \
     drivers/gpio.c \
     drivers/display.c \
     drivers/spi0.c \

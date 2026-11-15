@@ -1,7 +1,7 @@
 #include <stdint.h>
 #include "result.h"
 #include "spi_nor_ro.h"
-#include "fel_recovery.h"
+#include "fel.h"
 
 extern uint8_t __image_start;
 
@@ -211,5 +211,5 @@ done:
      * sequence so BootROM falls back to FEL.
      */
     if (recovery_armed)
-        stage1_enter_fel_recovery();
+        enter_fel_recovery();
 }
