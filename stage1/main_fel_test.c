@@ -1,6 +1,6 @@
 #include <stdint.h>
 
-#include "fel_recovery.h"
+#include "fel.h"
 #include "spi_nor_ro.h"
 
 static void halt_forever(void)
@@ -28,5 +28,5 @@ int main(void)
         jedec.capacity != 0x15U)
         halt_forever();
 
-    stage1_enter_fel_recovery();
+    enter_fel_recovery();
 }

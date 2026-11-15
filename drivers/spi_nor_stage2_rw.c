@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include "spi0.h"
 #include "spi_nor_stage2_rw.h"
+#include "timer.h"
 
 #define CMD_WRITE_ENABLE  0x06U
 #define CMD_READ_STATUS1  0x05U
@@ -10,7 +11,8 @@
 #define STATUS_WEL        0x02U
 #define MAX_PROGRAM_DATA  60U
 #define PAGE_SIZE         256U
-#define STATUS_TIMEOUT    4000000U
+#define ERASE_READY_TIMEOUT_MS 30000U
+#define ERASE_POLL_INTERVAL_MS 1U
 
 static int read_status(uint8_t *status)
 {
@@ -25,17 +27,29 @@ static int read_status(uint8_t *status)
 
 static int wait_ready(void)
 {
-    uint32_t timeout;
+    uint32_t start_ms;
+    uint32_t next_poll;
+    uint32_t now;
     uint8_t status;
     int result;
-    for (timeout = 0U; timeout < STATUS_TIMEOUT; ++timeout) {
+
+    start_ms = timer_get_ms();
+    next_poll = start_ms;
+
+    for (;;) {
+        now = timer_get_ms();
+        if ((uint32_t)(now - start_ms) >= ERASE_READY_TIMEOUT_MS)
+            return -20;
+        if ((int32_t)(now - next_poll) < 0)
+            continue;
+        next_poll = now + ERASE_POLL_INTERVAL_MS;
+
         result = read_status(&status);
         if (result)
             return result;
         if ((status & STATUS_BUSY) == 0U)
             return 0;
     }
-    return -20;
 }
 
 static int write_enable(void)

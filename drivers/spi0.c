@@ -2,6 +2,9 @@
 #include "spi0.h"
 #include "gpio.h"
 #include "regs.h"
+#ifdef SPI0_USE_TIMER_TIMEOUT
+#include "timer.h"
+#endif
 
 /* Allwinner R11/V3s SPI0, confirmed on DPOS350P: PC0..PC3. */
 #define CCU_BASE             0x01C20000U
@@ -37,6 +40,9 @@
 #define SPI_CCR_DRS          (1U << 12)
 
 #define TIMEOUT              1000000U
+#ifdef SPI0_USE_TIMER_TIMEOUT
+#define SPI_TRANSFER_TIMEOUT_MS 100U
+#endif
 
 #define SET_STAGE(n) do { (void)(n); } while(0)
 
@@ -87,8 +93,14 @@ int spi0_init(void)
 
 int spi0_transfer(const uint8_t *tx, uint8_t *rx, unsigned int length)
 {
-    unsigned int i, timeout, rx_count;
+    unsigned int i, rx_count;
+#ifndef SPI0_USE_TIMER_TIMEOUT
+    unsigned int timeout;
+#endif
     uint32_t tcr;
+#ifdef SPI0_USE_TIMER_TIMEOUT
+    uint32_t start_ms;
+#endif
     if (length == 0U || length > 64U) return -1;
 
     SET_STAGE(1U); /* FIFO reset/status clear */
@@ -110,9 +122,26 @@ int spi0_transfer(const uint8_t *tx, uint8_t *rx, unsigned int length)
     mmio_write32(SPI_TCR, tcr | SPI_TCR_XCH);
 
     SET_STAGE(6U); /* wait for transfer-complete */
+#ifdef SPI0_USE_TIMER_TIMEOUT
+    /* Stage2/write path: real-time timeout, HW-confirmed by D2d. */
+    start_ms = timer_get_ms();
+    while ((mmio_read32(SPI_ISR) & SPI_ISR_TC) == 0U) {
+        if ((uint32_t)(timer_get_ms() - start_ms) >=
+            SPI_TRANSFER_TIMEOUT_MS) {
+            cs_set(1U);
+            return -2;
+        }
+    }
+#else
+    /* Stage1 read-only boot path: preserve the proven timer-free behavior. */
     for (timeout = 0U; timeout < TIMEOUT; ++timeout)
-        if (mmio_read32(SPI_ISR) & SPI_ISR_TC) break;
-    if (timeout == TIMEOUT) { cs_set(1U); return -2; }
+        if (mmio_read32(SPI_ISR) & SPI_ISR_TC)
+            break;
+    if (timeout == TIMEOUT) {
+        cs_set(1U);
+        return -2;
+    }
+#endif
 
     SET_STAGE(7U); /* inspect RX FIFO count */
     mmio_write32(SPI_ISR, SPI_ISR_TC);

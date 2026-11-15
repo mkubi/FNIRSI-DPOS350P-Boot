@@ -36,6 +36,20 @@
 #define GT_SCL_PORT GPIO_PORT_G
 #define GT_SCL_PIN  7U
 
+/* Ignore small coordinate jitter before declaring a drag gesture. */
+#define GT911_DRAG_THRESHOLD 4U
+
+typedef struct {
+    uint16_t x;
+    uint16_t y;
+    uint16_t start_x;
+    uint16_t start_y;
+    uint8_t pressed;
+    uint8_t dragging;
+} gt911_runtime_state_t;
+
+static gt911_runtime_state_t gt911_runtime_state;
+
 static inline void i2c_delay(void)
 {
     volatile unsigned i;
@@ -177,6 +191,13 @@ static int gt911_read_reg(uint16_t reg, uint8_t *data, unsigned length)
 
 int gt911_init(void)
 {
+    gt911_runtime_state.x = 0U;
+    gt911_runtime_state.y = 0U;
+    gt911_runtime_state.start_x = 0U;
+    gt911_runtime_state.start_y = 0U;
+    gt911_runtime_state.pressed = 0U;
+    gt911_runtime_state.dragging = 0U;
+
     /* Stock 0x40049788: software-I2C pins are outputs and idle high. */
     gpio_set_output(GT_SDA_PORT, GT_SDA_PIN);
     gpio_set_output(GT_SCL_PORT, GT_SCL_PIN);
@@ -248,8 +269,13 @@ int gt911_debug_sample(gt911_debug_sample_t *sample, int clear_status)
 
     sample->touch.x = 0U;
     sample->touch.y = 0U;
+    sample->touch.start_x = 0U;
+    sample->touch.start_y = 0U;
+    sample->touch.dx = 0;
+    sample->touch.dy = 0;
     sample->touch.pressed = 0U;
     sample->touch.points = 0U;
+    sample->touch.state = GT911_TOUCH_NONE;
     sample->raw_status = 0U;
     sample->data_ready = 0U;
     sample->int_level = (uint8_t)gpio_read(GT_INT_PORT, GT_INT_PIN);
@@ -282,16 +308,100 @@ int gt911_debug_sample(gt911_debug_sample_t *sample, int clear_status)
 int gt911_poll(gt911_touch_t *touch)
 {
     gt911_debug_sample_t sample;
+    int32_t dx;
+    int32_t dy;
+    uint32_t abs_dx;
+    uint32_t abs_dy;
     int result;
 
     if (!touch)
         return -1;
 
+    /*
+     * Always return a complete event object. When there is no DATA_READY
+     * sample, state remains NONE and the current physical state is retained.
+     */
+    touch->x = gt911_runtime_state.x;
+    touch->y = gt911_runtime_state.y;
+    touch->start_x = gt911_runtime_state.start_x;
+    touch->start_y = gt911_runtime_state.start_y;
+    touch->dx = 0;
+    touch->dy = 0;
+    touch->pressed = gt911_runtime_state.pressed;
+    touch->points = 0U;
+    touch->state = GT911_TOUCH_NONE;
+
     result = gt911_debug_sample(&sample, 1);
-    touch->x = sample.touch.x;
-    touch->y = sample.touch.y;
-    touch->pressed = sample.touch.pressed;
-    touch->points = sample.touch.points;
+    if (result <= 0)
+        return result;
+
+    if (sample.touch.pressed != 0U && sample.touch.points != 0U) {
+        touch->points = sample.touch.points;
+        touch->pressed = 1U;
+        touch->x = sample.touch.x;
+        touch->y = sample.touch.y;
+
+        if (gt911_runtime_state.pressed == 0U) {
+            gt911_runtime_state.pressed = 1U;
+            gt911_runtime_state.dragging = 0U;
+            gt911_runtime_state.x = touch->x;
+            gt911_runtime_state.y = touch->y;
+            gt911_runtime_state.start_x = touch->x;
+            gt911_runtime_state.start_y = touch->y;
+
+            touch->start_x = touch->x;
+            touch->start_y = touch->y;
+            touch->state = GT911_TOUCH_PRESS;
+            return result;
+        }
+
+        dx = (int32_t)touch->x - (int32_t)gt911_runtime_state.x;
+        dy = (int32_t)touch->y - (int32_t)gt911_runtime_state.y;
+
+        touch->dx = (int16_t)dx;
+        touch->dy = (int16_t)dy;
+        touch->start_x = gt911_runtime_state.start_x;
+        touch->start_y = gt911_runtime_state.start_y;
+
+        abs_dx = dx < 0 ? (uint32_t)(-dx) : (uint32_t)dx;
+        abs_dy = dy < 0 ? (uint32_t)(-dy) : (uint32_t)dy;
+
+        if (!gt911_runtime_state.dragging &&
+            (abs_dx >= GT911_DRAG_THRESHOLD ||
+             abs_dy >= GT911_DRAG_THRESHOLD)) {
+            gt911_runtime_state.dragging = 1U;
+        }
+
+        touch->state = gt911_runtime_state.dragging
+                     ? GT911_TOUCH_DRAG
+                     : GT911_TOUCH_HELD;
+
+        gt911_runtime_state.x = touch->x;
+        gt911_runtime_state.y = touch->y;
+        return result;
+    }
+
+    /*
+     * DATA_READY with zero active points is the release edge when a gesture
+     * was previously active. Preserve the last coordinate for hit/drag users.
+     */
+    if (gt911_runtime_state.pressed != 0U) {
+        touch->x = gt911_runtime_state.x;
+        touch->y = gt911_runtime_state.y;
+        touch->start_x = gt911_runtime_state.start_x;
+        touch->start_y = gt911_runtime_state.start_y;
+        touch->pressed = 0U;
+        touch->points = 0U;
+        touch->state = GT911_TOUCH_RELEASE;
+
+        gt911_runtime_state.pressed = 0U;
+        gt911_runtime_state.dragging = 0U;
+        return result;
+    }
+
+    touch->pressed = 0U;
+    touch->points = 0U;
+    touch->state = GT911_TOUCH_NONE;
     return result;
 }
 

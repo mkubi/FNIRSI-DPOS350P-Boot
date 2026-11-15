@@ -1,9 +1,14 @@
 #include <stdint.h>
 
 #include "boot_menu.h"
+#include "display.h"
 #include "console.h"
 #include "timer.h"
 #include "gt911.h"
+#include "stage2_update.h"
+#include "stage2_version.h"
+#include "watchdog.h"
+#include "fel.h"
 
 
 /*
@@ -19,14 +24,43 @@
  */
 #define BOOT_MENU_TOUCH_DIAGNOSTIC 0
 
-#define WHITE  0xFFFFU
-#define GREEN  0x07E0U
-#define RED    0xF800U
-#define YELLOW 0xFFE0U
-#define CYAN   0x07FFU
-#define GRAY   0x8410U
 
 #define TOUCH_POLL_INTERVAL_MS 10U
+
+/* Shared BOOT/TOOLS menu geometry at console scale 2. */
+#define MENU_X_MIN             16U
+#define MENU_X_MAX             527U
+#define MENU_FIRST_ITEM_ROW    4U
+#define MENU_FIRST_ITEM_Y      96U
+#define MENU_ITEM_STEP_Y       64U
+#define MENU_ITEM_TOUCH_HEIGHT 64U
+
+#define UPDATE_CONFIRM_X_MIN      16U
+#define UPDATE_CONFIRM_X_MAX      527U
+#define UPDATE_CANCEL_ROW         8U
+#define UPDATE_INSTALL_ROW        12U
+#define UPDATE_CANCEL_Y           (16U + UPDATE_CANCEL_ROW * 20U)
+#define UPDATE_INSTALL_Y          (16U + UPDATE_INSTALL_ROW * 20U)
+#define UPDATE_CONFIRM_HEIGHT     64U
+
+typedef enum {
+    MENU_PAGE_BOOT = 0,
+    MENU_PAGE_TOOLS
+} menu_page_t;
+
+typedef enum {
+    MENU_ACTION_NONE = 0,
+    MENU_ACTION_BOOT_DEBUG,
+    MENU_ACTION_BOOT_CUSTOM,
+    MENU_ACTION_BOOT_SCOPE,
+    MENU_ACTION_BOOT_USB,
+    MENU_ACTION_OPEN_TOOLS,
+    MENU_ACTION_UPDATE_STAGE2,
+    MENU_ACTION_STOCK_UPDATER,
+    MENU_ACTION_ENTER_FEL,
+    MENU_ACTION_BACK
+} menu_action_t;
+
 
 
 static char hex_digit(uint8_t value)
@@ -69,90 +103,63 @@ static void put_u32(uint32_t value)
 }
 
 
+static void draw_menu_item(const char *title,
+                           const char *status_text,
+                           uint16_t status_color,
+                           int active)
+{
+    if (active) {
+        console_highlight_block_begin(DISPLAY_COLOR_CYAN);
+        console_set_color(DISPLAY_COLOR_BLACK);
+        console_putln(title);
+        console_highlight_block_end();
+    } else {
+        console_set_color(DISPLAY_COLOR_WHITE);
+        console_putln(title);
+    }
+
+    console_set_color(status_color);
+    console_putln(status_text);
+    console_putln("");
+}
+
+
 static void draw_target(const boot_context_t *context,
                         boot_target_id_t id,
-                        boot_target_id_t selected)
+                        int active)
 {
     const boot_target_status_t *status = &context->status[id];
 
-    console_putln("");
-
-    console_set_color(id == selected ? YELLOW : WHITE);
-    console_puts(id == selected ? ">>  " : "    ");
-    console_putln(boot_target_name(id));
-
-    console_puts("    ");
-
     if (status->available) {
-        console_set_color(GREEN);
-        console_putln("READY");
+        draw_menu_item(boot_target_name(id),
+                       "    READY",
+                       DISPLAY_COLOR_GREEN,
+                       active);
     } else {
-        console_set_color(GRAY);
-        console_puts("UNAVAILABLE  ");
-        put_hex32((uint32_t)status->probe_result);
-        console_putln("");
+        /* Keep unavailable rows geometrically identical to available rows. */
+        draw_menu_item(boot_target_name(id),
+                       "    UNAVAILABLE",
+                       DISPLAY_COLOR_GRAY,
+                       active);
     }
-
-    console_putln("");
 }
 
 
-static void draw_usb_connect_row(const boot_context_t *context,
-                                 boot_target_id_t selected)
+static void draw_tools_entry(menu_action_t armed_action)
 {
-    const boot_target_status_t *legacy;
-    const boot_target_status_t *linux_target;
-
-    legacy =
-        &context->status[BOOT_TARGET_USB_CONNECT_LEGACY];
-    linux_target =
-        &context->status[BOOT_TARGET_USB_CONNECT_LINUX];
-
-    console_putln("");
-
-    console_set_color(WHITE);
-    console_putln("    USB CONNECT");
-
-    console_set_color(
-        selected == BOOT_TARGET_USB_CONNECT_LEGACY
-            ? YELLOW : WHITE
-    );
-    console_puts(
-        selected == BOOT_TARGET_USB_CONNECT_LEGACY
-            ? ">>  LEGACY "
-            : "    LEGACY "
-    );
-
-    console_set_color(legacy->available ? GREEN : GRAY);
-    console_puts(legacy->available ? "READY" : "N/A");
-
-    console_set_color(WHITE);
-    console_puts("    |    ");
-
-    console_set_color(
-        selected == BOOT_TARGET_USB_CONNECT_LINUX
-            ? YELLOW : WHITE
-    );
-    console_puts(
-        selected == BOOT_TARGET_USB_CONNECT_LINUX
-            ? ">>  LINUX "
-            : "    LINUX "
-    );
-
-    console_set_color(linux_target->available ? GREEN : GRAY);
-    console_putln(linux_target->available ? "READY" : "N/A");
-
-    console_putln("");
+    draw_menu_item("TOOLS >",
+                   "",
+                   DISPLAY_COLOR_WHITE,
+                   armed_action == MENU_ACTION_OPEN_TOOLS);
 }
-
 
 void boot_menu_show_usb_linux(void)
 {
     console_clear();
 
-    console_set_color(CYAN);
+    console_set_color(DISPLAY_COLOR_CYAN);
     console_putln("                        FNIRSI DPOS350P");
-    console_set_color(WHITE);
+    console_set_color(DISPLAY_COLOR_WHITE);
     console_putln("                       USB MASS STORAGE");
     console_putln("");
     console_putln("");
@@ -160,7 +167,7 @@ void boot_menu_show_usb_linux(void)
     console_putln("");
     console_putln("");
 
-    console_set_color(CYAN);
+    console_set_color(DISPLAY_COLOR_CYAN);
     console_putln("    +----------------------+          +------------------+");
     console_putln("    |                      |          |                  |");
     console_putln("    |     /\\       /\\      |   USB    |      LINUX       |");
@@ -169,22 +176,22 @@ void boot_menu_show_usb_linux(void)
     console_putln("    +----------------------+          +------------------+");
     console_putln("");
 
-    console_set_color(WHITE);
+    console_set_color(DISPLAY_COLOR_WHITE);
     console_putln("             DPOS350P                  MASS STORAGE");
     console_putln("");
     console_putln("");
     console_putln("");
 
-    console_set_color(GREEN);
+    console_set_color(DISPLAY_COLOR_GREEN);
     console_putln("                       LINUX MODE ACTIVE");
-    console_set_color(WHITE);
+    console_set_color(DISPLAY_COLOR_WHITE);
     console_putln("                     READ / WRITE ENABLED");
     console_putln("");
     console_putln("");
     console_putln("");
     console_putln("");
 
-    console_set_color(YELLOW);
+    console_set_color(DISPLAY_COLOR_YELLOW);
     console_putln("                                  +----------------------+ ");
     console_putln("                                  |    HOLD TO REBOOT    | ");
     console_putln("                                  +----------------------+ ");
@@ -192,8 +199,10 @@ void boot_menu_show_usb_linux(void)
     console_present();
 }
 
+
 static void boot_menu_draw(const boot_context_t *context,
                            boot_target_id_t selected,
+                           menu_action_t armed_action,
                            uint32_t seconds_left,
                            int touch_available,
                            int autoboot_enabled,
@@ -203,56 +212,71 @@ static void boot_menu_draw(const boot_context_t *context,
 {
     console_clear();
 
-    console_set_color(CYAN);
+    console_set_color(DISPLAY_COLOR_CYAN);
     console_putln("FNIRSI DPOS350P");
     console_putln("BOOT MANAGER");
 
-    console_set_color(WHITE);
+    console_set_color(DISPLAY_COLOR_WHITE);
     console_putln("--------------------------------");
+
+    /* Overlay version without changing subsequent layout. */
+    console_set_cursor(48U, 0U);
+    console_puts("STG2 v");
+    put_hex32(STAGE2_IMAGE_VERSION);
+
+    /* Menu renderer already explicitly relocates itself. */
+    console_set_cursor(1U, MENU_FIRST_ITEM_ROW);
 
     draw_target(
         context,
         BOOT_TARGET_DEBUG_EXE2_FAT,
-        selected
+        (autoboot_enabled && selected == BOOT_TARGET_DEBUG_EXE2_FAT) ||
+        armed_action == MENU_ACTION_BOOT_DEBUG
     );
 
     draw_target(
         context,
         BOOT_TARGET_CUSTOM,
-        selected
+        (autoboot_enabled && selected == BOOT_TARGET_CUSTOM) ||
+        armed_action == MENU_ACTION_BOOT_CUSTOM
     );
 
     draw_target(
         context,
         BOOT_TARGET_ORIGINAL_SCOPE,
-        selected
+        (autoboot_enabled && selected == BOOT_TARGET_ORIGINAL_SCOPE) ||
+        armed_action == MENU_ACTION_BOOT_SCOPE
     );
 
-    draw_usb_connect_row(
+    draw_target(
         context,
-        selected
+        BOOT_TARGET_USB_CONNECT_LINUX,
+        (autoboot_enabled && selected == BOOT_TARGET_USB_CONNECT_LINUX) ||
+        armed_action == MENU_ACTION_BOOT_USB
     );
+
+    draw_tools_entry(armed_action);
 
     if (selected == BOOT_TARGET_NONE) {
-        console_set_color(RED);
+        console_set_color(DISPLAY_COLOR_RED);
         console_putln("NO BOOTABLE TARGET FOUND");
     } else if (autoboot_enabled) {
-        console_set_color(WHITE);
+        console_set_color(DISPLAY_COLOR_WHITE);
         console_puts("AUTOBOOT IN ");
 
-        console_set_color(YELLOW);
+        console_set_color(DISPLAY_COLOR_YELLOW);
         put_u32(seconds_left);
 
-        console_set_color(WHITE);
+        console_set_color(DISPLAY_COLOR_WHITE);
         console_putln(" SECONDS");
     } else {
-        console_set_color(YELLOW);
+        console_set_color(DISPLAY_COLOR_YELLOW);
         console_putln("SELECT BOOT TARGET");
     }
 
 #if BOOT_MENU_TOUCH_DIAGNOSTIC
 
-    console_set_color(touch_available ? GREEN : RED);
+    console_set_color(touch_available ? DISPLAY_COLOR_GREEN : DISPLAY_COLOR_RED);
 
     console_putln(
         touch_available
@@ -262,7 +286,7 @@ static void boot_menu_draw(const boot_context_t *context,
 
 #else
 
-    console_set_color(touch_available ? GREEN : GRAY);
+    console_set_color(touch_available ? DISPLAY_COLOR_GREEN : DISPLAY_COLOR_GRAY);
 
     console_putln(
         touch_available
@@ -273,10 +297,10 @@ static void boot_menu_draw(const boot_context_t *context,
 #endif
 
     if (!autoboot_enabled && have_touch) {
-        console_set_color(WHITE);
+        console_set_color(DISPLAY_COLOR_WHITE);
         console_puts("TOUCH X/Y: ");
 
-        console_set_color(CYAN);
+        console_set_color(DISPLAY_COLOR_CYAN);
         put_u32(touch_x);
         console_puts(" / ");
         put_u32(touch_y);
@@ -287,32 +311,504 @@ static void boot_menu_draw(const boot_context_t *context,
 }
 
 
-static boot_target_id_t boot_menu_hit_test(uint16_t x,
-                                           uint16_t y)
+static void update_status_line(const char *label, int ok)
 {
-    /*
-     * Current confirmed console-menu regions.
-     */
-    if (x < 20U || x > 1003U)
-        return BOOT_TARGET_NONE;
+    console_set_color(DISPLAY_COLOR_WHITE);
+    console_puts(label);
+    console_set_color(ok ? DISPLAY_COLOR_GREEN : DISPLAY_COLOR_RED);
+    console_putln(ok ? "PASS" : "FAIL");
+}
 
-    if (y >= 48U && y < 130U)
-        return BOOT_TARGET_DEBUG_EXE2_FAT;
 
-    if (y >= 130U && y < 220U)
-        return BOOT_TARGET_CUSTOM;
+static void update_hex_line(const char *label, uint32_t value)
+{
+    console_set_color(DISPLAY_COLOR_WHITE);
+    console_puts(label);
+    put_hex32(value);
+    console_putln("");
+}
 
-    if (y >= 220U && y < 310U)
-        return BOOT_TARGET_ORIGINAL_SCOPE;
 
-    if (y >= 310U && y < 400U) {
-        if (x < 512U)
-            return BOOT_TARGET_USB_CONNECT_LEGACY;
+static const char *stage2_write_status_name(stage2_write_status_t status)
+{
+    switch (status) {
+    case STAGE2_WRITE_OK:
+        return "UPDATE SUCCESS";
+    case STAGE2_WRITE_NOT_ARMED:
+        return "WRITE NOT ARMED";
+    case STAGE2_WRITE_INPUT_INVALID:
+        return "INPUT INVALID";
+    case STAGE2_WRITE_BACKUP_FAILED:
+        return "BACKUP FAILED";
+    case STAGE2_WRITE_INIT_FAILED:
+        return "WRITE INIT FAILED";
+    case STAGE2_WRITE_ERASE_FAILED:
+        return "ERASE FAILED";
+    case STAGE2_WRITE_PROGRAM_FAILED:
+        return "PROGRAM FAILED";
+    case STAGE2_WRITE_VERIFY_FAILED:
+        return "VERIFY FAILED";
+    case STAGE2_WRITE_RESTORED:
+        return "FAILED - OLD SLOT RESTORED";
+    case STAGE2_WRITE_RESTORE_FAILED:
+        return "RESTORE FAILED - USE FEL";
+    default:
+        return "UNKNOWN WRITE STATUS";
+    }
+}
 
-        return BOOT_TARGET_USB_CONNECT_LINUX;
+
+static void stage2_update_wait_for_tap(void)
+{
+    gt911_touch_t touch;
+    uint32_t next_poll = timer_get_ms();
+    int pressed = 0;
+
+    for (;;) {
+        uint32_t now = timer_get_ms();
+        int result;
+
+        if ((int32_t)(now - next_poll) < 0)
+            continue;
+        next_poll = now + TOUCH_POLL_INTERVAL_MS;
+        result = gt911_poll(&touch);
+        if (result < 0)
+            return;
+        if (result == 0)
+            continue;
+        if (touch.state == GT911_TOUCH_PRESS)
+            pressed = 1;
+        else if (pressed && touch.state == GT911_TOUCH_RELEASE)
+            return;
+    }
+}
+
+
+static const char *stage2_update_policy_name(stage2_update_policy_t policy)
+{
+    switch (policy) {
+    case STAGE2_UPDATE_POLICY_ALREADY_CURRENT:
+        return "ALREADY UP TO DATE";
+    case STAGE2_UPDATE_POLICY_UPGRADE:
+        return "UPDATE AVAILABLE";
+    case STAGE2_UPDATE_POLICY_RECOVERY:
+        return "RECOVERY UPDATE";
+    case STAGE2_UPDATE_POLICY_DOWNGRADE_BLOCKED:
+        return "DOWNGRADE BLOCKED";
+    case STAGE2_UPDATE_POLICY_SAME_VERSION_MISMATCH:
+        return "SAME VERSION MISMATCH";
+    default:
+        return "UPDATE POLICY INVALID";
+    }
+}
+
+static int stage2_update_confirm_gui(uint32_t installed_version,
+                                     uint32_t update_version)
+{
+    gt911_touch_t touch;
+    int armed = 0; /* 0 none, 1 cancel, 2 install */
+    uint32_t next_poll;
+
+    console_clear();
+    console_set_color(DISPLAY_COLOR_CYAN);
+    console_putln("INSTALL STAGE 2 UPDATE?");
+    console_set_color(DISPLAY_COLOR_WHITE);
+    console_putln("--------------------------------");
+    console_puts("INSTALLED VERSION ");
+    put_hex32(installed_version);
+    console_putln("");
+    console_puts("UPDATE VERSION    ");
+    put_hex32(update_version);
+    console_putln("");
+    console_putln("");
+    console_set_color(DISPLAY_COLOR_RED);
+    console_putln("DO NOT REMOVE POWER DURING UPDATE");
+
+    /* Render and hit-test use exactly the same fixed geometry. */
+    console_set_cursor(1U, UPDATE_CANCEL_ROW);
+    console_set_color(DISPLAY_COLOR_YELLOW);
+    console_putln("CANCEL");
+
+    console_set_cursor(1U, UPDATE_INSTALL_ROW);
+    console_set_color(DISPLAY_COLOR_GREEN);
+    console_putln("INSTALL UPDATE");
+    console_present_swap_only();
+
+    next_poll = timer_get_ms();
+    for (;;) {
+        uint32_t now = timer_get_ms();
+        int rc;
+        int hit = 0;
+
+        if ((int32_t)(now - next_poll) < 0)
+            continue;
+        next_poll = now + TOUCH_POLL_INTERVAL_MS;
+        rc = gt911_poll(&touch);
+        if (rc < 0)
+            return 0;
+        if (rc == 0)
+            continue;
+
+        if (touch.x >= UPDATE_CONFIRM_X_MIN &&
+            touch.x <= UPDATE_CONFIRM_X_MAX) {
+            if (touch.y >= UPDATE_CANCEL_Y &&
+                touch.y < UPDATE_CANCEL_Y + UPDATE_CONFIRM_HEIGHT)
+                hit = 1;
+            else if (touch.y >= UPDATE_INSTALL_Y &&
+                     touch.y < UPDATE_INSTALL_Y + UPDATE_CONFIRM_HEIGHT)
+                hit = 2;
+        }
+
+        if (touch.state == GT911_TOUCH_PRESS) {
+            armed = hit;
+        } else if (touch.state == GT911_TOUCH_DRAG) {
+            armed = hit;
+        } else if (touch.state == GT911_TOUCH_RELEASE) {
+            if (armed != 0 && hit == armed)
+                return armed == 2;
+            armed = 0;
+        }
+    }
+}
+
+static int fel_confirm_gui(void)
+{
+    gt911_touch_t touch;
+    int armed = 0; /* 0 none, 1 cancel, 2 enter */
+    uint32_t next_poll;
+
+    console_clear();
+    console_set_color(DISPLAY_COLOR_CYAN);
+    console_putln("ENTER FEL MODE?");
+    console_set_color(DISPLAY_COLOR_WHITE);
+    console_putln("--------------------------------");
+    console_putln("USB FEL RECOVERY MODE");
+    console_putln("");
+    console_set_color(DISPLAY_COLOR_RED);
+    console_putln("NORMAL BOOT WILL BE TEMPORARILY DISABLED");
+
+    console_set_cursor(1U, UPDATE_CANCEL_ROW);
+    console_set_color(DISPLAY_COLOR_YELLOW);
+    console_putln("CANCEL");
+    console_set_cursor(1U, UPDATE_INSTALL_ROW);
+    console_set_color(DISPLAY_COLOR_GREEN);
+    console_putln("ENTER FEL");
+    console_present_swap_only();
+
+    next_poll = timer_get_ms();
+    for (;;) {
+        uint32_t now = timer_get_ms();
+        int rc;
+        int hit = 0;
+        if ((int32_t)(now - next_poll) < 0)
+            continue;
+        next_poll = now + TOUCH_POLL_INTERVAL_MS;
+        rc = gt911_poll(&touch);
+        if (rc < 0)
+            return 0;
+        if (rc == 0)
+            continue;
+        if (touch.x >= UPDATE_CONFIRM_X_MIN && touch.x <= UPDATE_CONFIRM_X_MAX) {
+            if (touch.y >= UPDATE_CANCEL_Y && touch.y < UPDATE_CANCEL_Y + UPDATE_CONFIRM_HEIGHT)
+                hit = 1;
+            else if (touch.y >= UPDATE_INSTALL_Y && touch.y < UPDATE_INSTALL_Y + UPDATE_CONFIRM_HEIGHT)
+                hit = 2;
+        }
+        if (touch.state == GT911_TOUCH_PRESS)
+            armed = hit;
+        else if (touch.state == GT911_TOUCH_DRAG)
+            armed = hit;
+        else if (touch.state == GT911_TOUCH_RELEASE) {
+            if (armed != 0 && armed == hit)
+                return armed == 2;
+            armed = 0;
+        }
+    }
+}
+
+static void stage2_enter_fel(void)
+{
+    if (!fel_confirm_gui())
+        return;
+
+    console_clear();
+    console_set_color(DISPLAY_COLOR_CYAN);
+    console_putln("ENTERING FEL...");
+    console_set_color(DISPLAY_COLOR_WHITE);
+    console_putln("WAIT FOR USB FEL ENUMERATION");
+    console_present_swap_only();
+    timer_delay_ms(500U);
+    enter_fel_recovery();
+}
+
+static void stage2_update_show(void)
+{
+    static stage2_update_info_t info;
+    static stage2_write_result_t write_result;
+    stage2_write_status_t write_status;
+    int rc;
+
+    console_clear();
+    console_set_color(DISPLAY_COLOR_CYAN);
+    console_putln("STAGE 2 UPDATE");
+    console_set_color(DISPLAY_COLOR_WHITE);
+    console_putln("CHECK / WRITE / VERIFY");
+    console_set_color(DISPLAY_COLOR_WHITE);
+    console_putln("--------------------------------");
+    console_putln("ANALYZING...");
+    console_present_swap_only();
+
+    rc = stage2_update_analyze(&info);
+
+    console_clear();
+    console_set_color(DISPLAY_COLOR_CYAN);
+    console_putln("STAGE 2 UPDATE");
+    console_set_color(DISPLAY_COLOR_WHITE);
+    console_putln("CHECK / WRITE / VERIFY");
+    console_putln("--------------------------------");
+    update_status_line("SD-NAND          ", info.sd_result == 0);
+    update_status_line("FAT              ", info.fat_result == 0);
+    update_status_line("STAGE2.BIN       ", info.file_found);
+    update_status_line("IMAGE HEADER     ", info.header_valid);
+    update_status_line("IMAGE CRC32      ", info.input_valid);
+    update_status_line("CURRENT SLOT     ", info.slot_valid);
+    update_hex_line("INSTALLED VERSION", info.installed_image_version);
+    update_hex_line("UPDATE VERSION   ", info.image_version);
+    update_hex_line("UPDATE POLICY    ", (uint32_t)info.policy);
+    update_status_line("EXACT MATCH      ", info.exact_match);
+    update_hex_line("DIFFERENCES      ", info.differences);
+    update_hex_line("FIRST DIFFERENCE ", info.first_difference);
+
+    if (rc != 0 || !info.input_valid) {
+        console_set_color(DISPLAY_COLOR_RED);
+        console_putln("ANALYSIS FAILED - NO WRITE");
+        console_set_color(DISPLAY_COLOR_YELLOW);
+        console_putln("TAP TO RETURN");
+        console_present_swap_only();
+        stage2_update_wait_for_tap();
+        return;
     }
 
-    return BOOT_TARGET_NONE;
+    console_set_color(
+        info.policy == STAGE2_UPDATE_POLICY_UPGRADE ||
+        info.policy == STAGE2_UPDATE_POLICY_RECOVERY ||
+        info.policy == STAGE2_UPDATE_POLICY_ALREADY_CURRENT
+            ? DISPLAY_COLOR_GREEN
+            : DISPLAY_COLOR_RED);
+    console_putln(stage2_update_policy_name(info.policy));
+
+    if (info.policy == STAGE2_UPDATE_POLICY_ALREADY_CURRENT ||
+        info.policy == STAGE2_UPDATE_POLICY_DOWNGRADE_BLOCKED ||
+        info.policy == STAGE2_UPDATE_POLICY_SAME_VERSION_MISMATCH ||
+        info.policy == STAGE2_UPDATE_POLICY_INVALID) {
+        console_set_color(DISPLAY_COLOR_YELLOW);
+        console_putln("TAP TO RETURN");
+        console_present_swap_only();
+        stage2_update_wait_for_tap();
+        return;
+    }
+
+    if (!stage2_update_confirm_gui(info.installed_image_version,
+                                   info.image_version)) {
+        console_clear();
+        console_set_color(DISPLAY_COLOR_CYAN);
+        console_putln("STAGE 2 UPDATE");
+        console_set_color(DISPLAY_COLOR_YELLOW);
+        console_putln("UPDATE CANCELLED");
+        console_set_color(DISPLAY_COLOR_WHITE);
+        console_putln("NO NOR CHANGES MADE");
+        console_set_color(DISPLAY_COLOR_YELLOW);
+        console_putln("TAP TO RETURN");
+        console_present_swap_only();
+        stage2_update_wait_for_tap();
+        return;
+    }
+
+    console_clear();
+    console_set_color(DISPLAY_COLOR_RED);
+    console_putln("UPDATING STAGE 2");
+    console_putln("DO NOT REMOVE POWER");
+    console_present_swap_only();
+
+    write_status = stage2_update_write(&write_result);
+
+    console_clear();
+    console_set_color(DISPLAY_COLOR_CYAN);
+    console_putln("STAGE 2 UPDATE RESULT");
+    console_set_color(DISPLAY_COLOR_WHITE);
+    console_putln("--------------------------------");
+    update_hex_line("BACKUP RC        ",
+                    (uint32_t)write_result.backup_result);
+    update_hex_line("WRITE INIT RC    ",
+                    (uint32_t)write_result.write_init_result);
+    update_hex_line("ERASE RC         ",
+                    (uint32_t)write_result.erase_result);
+    update_hex_line("PROGRAM RC       ",
+                    (uint32_t)write_result.program_result);
+    update_hex_line("VERIFY RC        ",
+                    (uint32_t)write_result.verify_result);
+    update_hex_line("RESTORE RC       ",
+                    (uint32_t)write_result.restore_result);
+    update_hex_line("FIRST DIFFERENCE ",
+                    write_result.first_difference);
+
+    console_putln("");
+    console_set_color(write_status == STAGE2_WRITE_OK
+                      ? DISPLAY_COLOR_GREEN
+                      : DISPLAY_COLOR_RED);
+    console_putln(stage2_write_status_name(write_status));
+
+    if (write_status == STAGE2_WRITE_OK) {
+        console_set_color(DISPLAY_COLOR_YELLOW);
+        console_putln("REBOOTING...");
+        console_present_swap_only();
+        timer_delay_ms(1000U);
+        watchdog_reboot();
+    }
+
+    /* Failures stay visible and never reboot automatically. */
+    console_set_color(DISPLAY_COLOR_YELLOW);
+    console_putln("TAP TO RETURN");
+    console_present_swap_only();
+    stage2_update_wait_for_tap();
+}
+
+static void tools_menu_draw(const boot_context_t *context,
+                            menu_action_t armed_action,
+                            uint16_t touch_x,
+                            uint16_t touch_y,
+                            int have_touch)
+{
+    const boot_target_status_t *stock_updater;
+
+    stock_updater =
+        &context->status[BOOT_TARGET_USB_CONNECT_LEGACY];
+
+    console_clear();
+
+    console_set_color(DISPLAY_COLOR_CYAN);
+    console_putln("FNIRSI DPOS350P");
+    console_putln("TOOLS");
+
+    console_set_color(DISPLAY_COLOR_WHITE);
+    console_putln("--------------------------------");
+    console_putln("");
+    console_set_cursor(1U, MENU_FIRST_ITEM_ROW);
+
+    draw_menu_item("UPDATE STAGE 2",
+                   "    READY",
+                   DISPLAY_COLOR_GREEN,
+                   armed_action == MENU_ACTION_UPDATE_STAGE2);
+
+    draw_menu_item("STOCK UPDATER",
+                   stock_updater->available
+                       ? "    READY"
+                       : "    UNAVAILABLE",
+                   stock_updater->available ? DISPLAY_COLOR_GREEN : DISPLAY_COLOR_GRAY,
+                   armed_action == MENU_ACTION_STOCK_UPDATER);
+
+    draw_menu_item("ENTER FEL",
+                   "    READY",
+                   DISPLAY_COLOR_GREEN,
+                   armed_action == MENU_ACTION_ENTER_FEL);
+
+    draw_menu_item("< BACK",
+                   "",
+                   DISPLAY_COLOR_WHITE,
+                   armed_action == MENU_ACTION_BACK);
+
+    console_set_color(DISPLAY_COLOR_WHITE);
+    console_putln("SELECT TOOL");
+
+    if (have_touch) {
+        console_set_color(DISPLAY_COLOR_WHITE);
+        console_puts("TOUCH X/Y: ");
+        console_set_color(DISPLAY_COLOR_CYAN);
+        put_u32(touch_x);
+        console_puts(" / ");
+        put_u32(touch_y);
+        console_putln("");
+    }
+
+    console_present_swap_only();
+}
+
+static int menu_item_index(uint16_t x, uint16_t y,
+                           unsigned item_count)
+{
+    uint32_t relative_y;
+    unsigned index;
+
+    if (x < MENU_X_MIN || x > MENU_X_MAX || y < MENU_FIRST_ITEM_Y)
+        return -1;
+
+    relative_y = (uint32_t)y - MENU_FIRST_ITEM_Y;
+    index = (unsigned)(relative_y / MENU_ITEM_STEP_Y);
+
+    if (index >= item_count ||
+        (relative_y % MENU_ITEM_STEP_Y) >= MENU_ITEM_TOUCH_HEIGHT)
+        return -1;
+
+    return (int)index;
+}
+
+static menu_action_t boot_menu_hit_test(uint16_t x,
+                                        uint16_t y)
+{
+    static const menu_action_t actions[] = {
+        MENU_ACTION_BOOT_DEBUG,
+        MENU_ACTION_BOOT_CUSTOM,
+        MENU_ACTION_BOOT_SCOPE,
+        MENU_ACTION_BOOT_USB,
+        MENU_ACTION_OPEN_TOOLS
+    };
+    int index = menu_item_index(x, y,
+                                (unsigned)(sizeof(actions) /
+                                           sizeof(actions[0])));
+
+    if (index < 0)
+        return MENU_ACTION_NONE;
+
+
+    return actions[index];
+}
+
+static menu_action_t tools_menu_hit_test(uint16_t x,
+                                         uint16_t y)
+{
+    static const menu_action_t actions[] = {
+        MENU_ACTION_UPDATE_STAGE2,
+        MENU_ACTION_STOCK_UPDATER,
+        MENU_ACTION_ENTER_FEL,
+        MENU_ACTION_BACK
+    };
+    int index = menu_item_index(x, y,
+                                (unsigned)(sizeof(actions) /
+                                           sizeof(actions[0])));
+
+    if (index < 0)
+        return MENU_ACTION_NONE;
+
+
+    return actions[index];
+}
+
+static boot_target_id_t action_boot_target(menu_action_t action)
+{
+    switch (action) {
+    case MENU_ACTION_BOOT_DEBUG:
+        return BOOT_TARGET_DEBUG_EXE2_FAT;
+    case MENU_ACTION_BOOT_CUSTOM:
+        return BOOT_TARGET_CUSTOM;
+    case MENU_ACTION_BOOT_SCOPE:
+        return BOOT_TARGET_ORIGINAL_SCOPE;
+    case MENU_ACTION_BOOT_USB:
+        return BOOT_TARGET_USB_CONNECT_LINUX;
+    case MENU_ACTION_STOCK_UPDATER:
+        return BOOT_TARGET_USB_CONNECT_LEGACY;
+    default:
+        return BOOT_TARGET_NONE;
+    }
 }
 
 
@@ -320,7 +816,11 @@ boot_target_id_t boot_menu_run(const boot_context_t *context,
                                int touch_available)
 {
     boot_target_id_t selected;
-    boot_target_id_t hit;
+    boot_target_id_t hit_target;
+    menu_page_t page;
+    menu_action_t action;
+    menu_action_t armed_action;
+    menu_page_t armed_page;
 
     gt911_touch_t touch;
 
@@ -344,6 +844,9 @@ boot_target_id_t boot_menu_run(const boot_context_t *context,
 #endif
 
     selected = boot_targets_default(context);
+    page = MENU_PAGE_BOOT;
+    armed_page = MENU_PAGE_BOOT;
+    armed_action = MENU_ACTION_NONE;
 
     shown = 0xFFFFFFFFU;
     seconds_left = BOOT_MENU_AUTOBOOT_SECONDS;
@@ -356,6 +859,7 @@ boot_target_id_t boot_menu_run(const boot_context_t *context,
         boot_menu_draw(
             context,
             selected,
+            armed_action,
             0U,
             touch_available,
             0,
@@ -382,6 +886,7 @@ boot_target_id_t boot_menu_run(const boot_context_t *context,
     boot_menu_draw(
         context,
         selected,
+        armed_action,
         0U,
         touch_available,
         0,
@@ -395,6 +900,7 @@ boot_target_id_t boot_menu_run(const boot_context_t *context,
     boot_menu_draw(
         context,
         selected,
+        armed_action,
         seconds_left,
         touch_available,
         1,
@@ -421,6 +927,7 @@ boot_target_id_t boot_menu_run(const boot_context_t *context,
                 boot_menu_draw(
                     context,
                     selected,
+                    armed_action,
                     seconds_left,
                     touch_available,
                     1,
@@ -461,16 +968,27 @@ boot_target_id_t boot_menu_run(const boot_context_t *context,
             autoboot_enabled = 0;
 #endif
 
-            boot_menu_draw(
-                context,
-                selected,
-                autoboot_enabled ? seconds_left : 0U,
-                0,
-                autoboot_enabled,
-                last_touch_x,
-                last_touch_y,
-                have_touch
-            );
+            if (page == MENU_PAGE_TOOLS) {
+                tools_menu_draw(
+                    context,
+                    armed_action,
+                    last_touch_x,
+                    last_touch_y,
+                    have_touch
+                );
+            } else {
+                boot_menu_draw(
+                    context,
+                    selected,
+                    armed_action,
+                    autoboot_enabled ? seconds_left : 0U,
+                    0,
+                    autoboot_enabled,
+                    last_touch_x,
+                    last_touch_y,
+                    have_touch
+                );
+            }
 
             continue;
         }
@@ -479,47 +997,136 @@ boot_target_id_t boot_menu_run(const boot_context_t *context,
             continue;
 
         /*
-         * Ignore release events and stale DATA_READY events that contain
-         * no active point.
-         *
-         * These events must not:
-         * - cancel autoboot,
-         * - replace the last valid coordinates with 0/0,
-         * - select a target.
+         * Stage 2 uses normal release-to-activate button semantics:
+         * PRESS arms/highlights the item, DRAG may cancel it, and RELEASE
+         * activates only when it occurs over the same item.
          */
-        if (!touch.pressed || touch.points == 0U)
+        if (touch.state == GT911_TOUCH_PRESS) {
+            autoboot_enabled = 0;
+            last_touch_x = touch.x;
+            last_touch_y = touch.y;
+            have_touch = 1;
+            armed_page = page;
+            armed_action = page == MENU_PAGE_BOOT
+                         ? boot_menu_hit_test(touch.x, touch.y)
+                         : tools_menu_hit_test(touch.x, touch.y);
+
+            /* Highlight the armed boot target when applicable. */
+            if (page == MENU_PAGE_BOOT) {
+                boot_menu_draw(context, selected, armed_action, 0U, touch_available, 0,
+                               last_touch_x, last_touch_y, have_touch);
+            } else {
+                tools_menu_draw(context, armed_action, last_touch_x,
+                                last_touch_y, have_touch);
+            }
+            continue;
+        }
+
+        if (touch.state == GT911_TOUCH_HELD)
             continue;
 
-        /*
-         * Only a real pressed point cancels autoboot.
-         */
-        autoboot_enabled = 0;
+        if (touch.state == GT911_TOUCH_DRAG) {
+            menu_action_t new_action;
 
-        /*
-         * Store only valid pressed coordinates.
-         */
+            /*
+             * Drag-to-select: while the finger remains down, move the armed
+             * selection to whichever item is currently under the finger.
+             * Redraw only when the hit-tested action actually changes.
+             */
+            new_action = page == MENU_PAGE_BOOT
+                       ? boot_menu_hit_test(touch.x, touch.y)
+                       : tools_menu_hit_test(touch.x, touch.y);
+
+            if (page != armed_page)
+                new_action = MENU_ACTION_NONE;
+
+            if (new_action != armed_action) {
+                armed_action = new_action;
+                last_touch_x = touch.x;
+                last_touch_y = touch.y;
+                have_touch = 1;
+
+                if (page == MENU_PAGE_BOOT)
+                    boot_menu_draw(context, selected, armed_action, 0U,
+                                   touch_available, 0, last_touch_x,
+                                   last_touch_y, have_touch);
+                else
+                    tools_menu_draw(context, armed_action,
+                                    last_touch_x, last_touch_y, have_touch);
+            }
+            continue;
+        }
+
+        if (touch.state != GT911_TOUCH_RELEASE)
+            continue;
+
         last_touch_x = touch.x;
         last_touch_y = touch.y;
         have_touch = 1;
 
-        hit = boot_menu_hit_test(
-            touch.x,
-            touch.y
-        );
+        action = page == MENU_PAGE_BOOT
+               ? boot_menu_hit_test(touch.x, touch.y)
+               : tools_menu_hit_test(touch.x, touch.y);
 
-        if (hit != BOOT_TARGET_NONE &&
-            context->status[hit].available) {
+        if (page != armed_page ||
+            armed_action == MENU_ACTION_NONE ||
+            action != armed_action) {
+            armed_action = MENU_ACTION_NONE;
+            if (page == MENU_PAGE_BOOT)
+                boot_menu_draw(context, selected, armed_action, 0U, touch_available, 0,
+                               last_touch_x, last_touch_y, have_touch);
+            else
+                tools_menu_draw(context, armed_action, last_touch_x,
+                                last_touch_y, have_touch);
+            continue;
+        }
+
+        action = armed_action;
+        armed_action = MENU_ACTION_NONE;
+
+        if (page == MENU_PAGE_BOOT) {
+            if (action == MENU_ACTION_OPEN_TOOLS) {
+                page = MENU_PAGE_TOOLS;
+
+                tools_menu_draw(
+                    context,
+                    armed_action,
+                    last_touch_x,
+                    last_touch_y,
+                    have_touch
+                );
+
+                continue;
+            }
+
+            hit_target = action_boot_target(action);
+
+            if (hit_target != BOOT_TARGET_NONE &&
+                context->status[hit_target].available) {
 
 #if BOOT_MENU_TOUCH_DIAGNOSTIC
+                boot_menu_draw(
+                    context,
+                    selected,
+                    armed_action,
+                    0U,
+                    touch_available,
+                    0,
+                    last_touch_x,
+                    last_touch_y,
+                    have_touch
+                );
 
-            /*
-             * Diagnostic mode only highlights the detected target.
-             */
-            selected = hit;
+                continue;
+#else
+                return hit_target;
+#endif
+            }
 
             boot_menu_draw(
                 context,
                 selected,
+                armed_action,
                 0U,
                 touch_available,
                 0,
@@ -529,27 +1136,65 @@ boot_target_id_t boot_menu_run(const boot_context_t *context,
             );
 
             continue;
-
-#else
-
-            /*
-             * Production mode immediately boots the touched target.
-             */
-            return hit;
-
-#endif
         }
 
-        /*
-         * A real touch outside every valid target permanently cancels
-         * autoboot and leaves the menu waiting for user selection.
-         */
-        boot_menu_draw(
+        if (action == MENU_ACTION_BACK) {
+            page = MENU_PAGE_BOOT;
+
+            boot_menu_draw(
+                context,
+                selected,
+                armed_action,
+                0U,
+                touch_available,
+                0,
+                last_touch_x,
+                last_touch_y,
+                have_touch
+            );
+
+            continue;
+        }
+
+        if (action == MENU_ACTION_UPDATE_STAGE2) {
+            stage2_update_show();
+            armed_action = MENU_ACTION_NONE;
+
+            tools_menu_draw(
+                context,
+                armed_action,
+                last_touch_x,
+                last_touch_y,
+                have_touch
+            );
+
+            continue;
+        }
+
+        if (action == MENU_ACTION_ENTER_FEL) {
+            stage2_enter_fel();
+
+            tools_menu_draw(
+                context,
+                armed_action,
+                last_touch_x,
+                last_touch_y,
+                have_touch
+            );
+
+            continue;
+        }
+
+        hit_target = action_boot_target(action);
+
+        if (hit_target == BOOT_TARGET_USB_CONNECT_LEGACY &&
+            context->status[hit_target].available) {
+            return hit_target;
+        }
+
+        tools_menu_draw(
             context,
-            selected,
-            0U,
-            touch_available,
-            0,
+            armed_action,
             last_touch_x,
             last_touch_y,
             have_touch
@@ -562,20 +1207,20 @@ void boot_menu_show_loading(boot_target_id_t selected)
 {
     console_clear();
 
-    console_set_color(CYAN);
+    console_set_color(DISPLAY_COLOR_CYAN);
     console_putln("FNIRSI DPOS350P");
     console_putln("BOOT MANAGER");
     console_putln("");
 
-    console_set_color(WHITE);
+    console_set_color(DISPLAY_COLOR_WHITE);
     console_putln("LOADING");
     console_putln("");
 
-    console_set_color(YELLOW);
+    console_set_color(DISPLAY_COLOR_YELLOW);
     console_putln(boot_target_name(selected));
     console_putln("");
 
-    console_set_color(WHITE);
+    console_set_color(DISPLAY_COLOR_WHITE);
     console_putln("PLEASE WAIT...");
 
     console_present();
@@ -587,17 +1232,17 @@ void boot_menu_show_error(boot_target_id_t selected,
 {
     console_clear();
 
-    console_set_color(RED);
+    console_set_color(DISPLAY_COLOR_RED);
     console_putln("BOOT FAILED");
     console_putln("");
 
-    console_set_color(WHITE);
+    console_set_color(DISPLAY_COLOR_WHITE);
     console_puts("TARGET: ");
     console_putln(boot_target_name(selected));
 
     console_puts("ERROR : ");
 
-    console_set_color(RED);
+    console_set_color(DISPLAY_COLOR_RED);
     put_hex32((uint32_t)error);
     console_putln("");
 

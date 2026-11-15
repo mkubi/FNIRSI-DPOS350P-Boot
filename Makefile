@@ -15,6 +15,7 @@ STAGE2_SLOT := $(BUILD)/STAGE2.BIN
 INCLUDES := -I. -Iarch/r11 -Iboard/dpos350p -Idrivers -Iloader -Istorage -Iui
 
 CFLAGS := -O2 -mcpu=cortex-a7 -marm -mno-unaligned-access \
+          -DSPI0_USE_TIMER_TIMEOUT \
           -ffreestanding -fno-builtin -fno-common \
           -fno-unwind-tables -fno-asynchronous-unwind-tables \
           -nostdlib -Wall -Wextra $(INCLUDES)
@@ -24,10 +25,13 @@ SOURCES_C := \
     arch/r11/irq.c \
     arch/r11/mmu.c \
     arch/r11/timer.c \
+    arch/r11/watchdog.c \
+    arch/r11/fel.c \
     drivers/gpio.c \
     drivers/display.c \
     drivers/spi0.c \
     drivers/spi_nor_ro.c \
+    drivers/spi_nor_stage2_rw.c \
     drivers/sdmmc0.c \
     drivers/gt911.c \
     storage/fat.c \
@@ -36,6 +40,7 @@ SOURCES_C := \
     loader/dposdbg.c \
     loader/dposlab.c \
     loader/original.c \
+    loader/stage2_update.c \
     loader/usb_linux.c \
     loader/start.c \
     loader/boot_targets.c \
