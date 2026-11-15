@@ -18,9 +18,9 @@ const char *boot_target_name(boot_target_id_t id)
     case BOOT_TARGET_ORIGINAL_SCOPE:
         return "ORIGINAL OSCILLOSCOPE";
     case BOOT_TARGET_USB_CONNECT_LEGACY:
-        return "USB CONNECT LEGACY";
+        return "STOCK UPDATER";
     case BOOT_TARGET_USB_CONNECT_LINUX:
-        return "USB CONNECT LINUX";
+        return "USB CONNECT";
     default:
         return "UNKNOWN";
     }

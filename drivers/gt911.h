@@ -3,11 +3,33 @@
 
 #include <stdint.h>
 
+typedef enum {
+    GT911_TOUCH_NONE = 0,
+    GT911_TOUCH_PRESS,
+    GT911_TOUCH_HELD,
+    GT911_TOUCH_DRAG,
+    GT911_TOUCH_RELEASE
+} gt911_touch_state_t;
+
 typedef struct {
+    /* Current coordinate, or the last coordinate for RELEASE. */
     uint16_t x;
     uint16_t y;
+
+    /* Coordinate where the current gesture began. */
+    uint16_t start_x;
+    uint16_t start_y;
+
+    /* Delta from the previous active sample. */
+    int16_t dx;
+    int16_t dy;
+
+    /* Backward-compatible physical touch state. */
     uint8_t pressed;
     uint8_t points;
+
+    /* Edge/gesture state for UI consumers. */
+    gt911_touch_state_t state;
 } gt911_touch_t;
 
 typedef struct {
