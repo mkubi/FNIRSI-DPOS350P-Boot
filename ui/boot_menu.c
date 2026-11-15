@@ -5,6 +5,7 @@
 #include "console.h"
 #include "timer.h"
 #include "gt911.h"
+#include "stage2_update.h"
 
 
 /*
@@ -298,6 +299,185 @@ static void boot_menu_draw(const boot_context_t *context,
 }
 
 
+static void update_status_line(const char *label, int ok)
+{
+    console_set_color(DISPLAY_COLOR_WHITE);
+    console_puts(label);
+    console_set_color(ok ? DISPLAY_COLOR_GREEN : DISPLAY_COLOR_RED);
+    console_putln(ok ? "PASS" : "FAIL");
+}
+
+
+static void update_hex_line(const char *label, uint32_t value)
+{
+    console_set_color(DISPLAY_COLOR_WHITE);
+    console_puts(label);
+    put_hex32(value);
+    console_putln("");
+}
+
+
+static const char *stage2_write_status_name(stage2_write_status_t status)
+{
+    switch (status) {
+    case STAGE2_WRITE_OK:
+        return "UPDATE SUCCESS";
+    case STAGE2_WRITE_NOT_ARMED:
+        return "WRITE NOT ARMED";
+    case STAGE2_WRITE_INPUT_INVALID:
+        return "INPUT INVALID";
+    case STAGE2_WRITE_BACKUP_FAILED:
+        return "BACKUP FAILED";
+    case STAGE2_WRITE_INIT_FAILED:
+        return "WRITE INIT FAILED";
+    case STAGE2_WRITE_ERASE_FAILED:
+        return "ERASE FAILED";
+    case STAGE2_WRITE_PROGRAM_FAILED:
+        return "PROGRAM FAILED";
+    case STAGE2_WRITE_VERIFY_FAILED:
+        return "VERIFY FAILED";
+    case STAGE2_WRITE_RESTORED:
+        return "FAILED - OLD SLOT RESTORED";
+    case STAGE2_WRITE_RESTORE_FAILED:
+        return "RESTORE FAILED - USE FEL";
+    default:
+        return "UNKNOWN WRITE STATUS";
+    }
+}
+
+
+static void stage2_update_wait_for_tap(void)
+{
+    gt911_touch_t touch;
+    uint32_t next_poll = timer_get_ms();
+    int pressed = 0;
+
+    for (;;) {
+        uint32_t now = timer_get_ms();
+        int result;
+
+        if ((int32_t)(now - next_poll) < 0)
+            continue;
+        next_poll = now + TOUCH_POLL_INTERVAL_MS;
+        result = gt911_poll(&touch);
+        if (result < 0)
+            return;
+        if (result == 0)
+            continue;
+        if (touch.state == GT911_TOUCH_PRESS)
+            pressed = 1;
+        else if (pressed && touch.state == GT911_TOUCH_RELEASE)
+            return;
+    }
+}
+
+
+static void stage2_update_show(void)
+{
+    static stage2_update_info_t info;
+    static stage2_write_result_t write_result;
+    stage2_write_status_t write_status;
+    int rc;
+
+    console_clear();
+    console_set_color(DISPLAY_COLOR_CYAN);
+    console_putln("STAGE 2 UPDATE");
+    console_set_color(DISPLAY_COLOR_WHITE);
+    console_putln("CHECK / WRITE / VERIFY");
+    console_set_color(DISPLAY_COLOR_GREEN);
+    console_putln("T2B SELF UPDATE PASS");
+    console_set_color(DISPLAY_COLOR_WHITE);
+    console_putln("--------------------------------");
+    console_putln("ANALYZING...");
+    console_present_swap_only();
+
+    rc = stage2_update_analyze(&info);
+
+    console_clear();
+    console_set_color(DISPLAY_COLOR_CYAN);
+    console_putln("STAGE 2 UPDATE");
+    console_set_color(DISPLAY_COLOR_WHITE);
+    console_putln("CHECK / WRITE / VERIFY");
+    console_putln("--------------------------------");
+    update_status_line("SD-NAND          ", info.sd_result == 0);
+    update_status_line("FAT              ", info.fat_result == 0);
+    update_status_line("STAGE2.BIN       ", info.file_found);
+    update_status_line("IMAGE HEADER     ", info.header_valid);
+    update_status_line("IMAGE CRC32      ", info.input_valid);
+    update_status_line("CURRENT SLOT     ", info.slot_valid);
+    update_status_line("EXACT MATCH      ", info.exact_match);
+    update_hex_line("DIFFERENCES      ", info.differences);
+    update_hex_line("FIRST DIFFERENCE ", info.first_difference);
+
+    if (rc != 0 || !info.input_valid) {
+        console_set_color(DISPLAY_COLOR_RED);
+        console_putln("ANALYSIS FAILED - NO WRITE");
+        console_set_color(DISPLAY_COLOR_YELLOW);
+        console_putln("TAP TO RETURN");
+        console_present_swap_only();
+        stage2_update_wait_for_tap();
+        return;
+    }
+
+    if (info.exact_match) {
+        console_set_color(DISPLAY_COLOR_GREEN);
+        console_putln("ALREADY UP TO DATE");
+        console_set_color(DISPLAY_COLOR_YELLOW);
+        console_putln("TAP TO RETURN");
+        console_present_swap_only();
+        stage2_update_wait_for_tap();
+        return;
+    }
+
+    console_set_color(DISPLAY_COLOR_RED);
+    console_putln("WRITE REQUIRES /STG2OK.BIN");
+    console_putln("DO NOT REMOVE POWER");
+    console_present_swap_only();
+    timer_delay_ms(2000U);
+
+    write_status = stage2_update_write(&write_result);
+
+    console_clear();
+    console_set_color(DISPLAY_COLOR_CYAN);
+    console_putln("STAGE 2 UPDATE RESULT");
+    console_set_color(DISPLAY_COLOR_WHITE);
+    console_putln("--------------------------------");
+    update_status_line("CONFIRM TOKEN    ", write_result.confirm_valid);
+    update_hex_line("BACKUP RC        ",
+                    (uint32_t)write_result.backup_result);
+    update_hex_line("WRITE INIT RC    ",
+                    (uint32_t)write_result.write_init_result);
+    update_hex_line("ERASE RC         ",
+                    (uint32_t)write_result.erase_result);
+    update_hex_line("PROGRAM RC       ",
+                    (uint32_t)write_result.program_result);
+    update_hex_line("VERIFY RC        ",
+                    (uint32_t)write_result.verify_result);
+    update_hex_line("RESTORE RC       ",
+                    (uint32_t)write_result.restore_result);
+    update_hex_line("FIRST DIFFERENCE ",
+                    write_result.first_difference);
+
+    console_putln("");
+    console_set_color(write_status == STAGE2_WRITE_OK
+                      ? DISPLAY_COLOR_GREEN
+                      : DISPLAY_COLOR_RED);
+    console_putln(stage2_write_status_name(write_status));
+
+    if (write_status == STAGE2_WRITE_OK) {
+        console_set_color(DISPLAY_COLOR_YELLOW);
+        console_putln("REBOOT REQUIRED");
+    } else if (write_status == STAGE2_WRITE_NOT_ARMED) {
+        console_set_color(DISPLAY_COLOR_WHITE);
+        console_putln("NO NOR CHANGES MADE");
+    }
+
+    console_set_color(DISPLAY_COLOR_YELLOW);
+    console_putln("TAP TO RETURN");
+    console_present_swap_only();
+    stage2_update_wait_for_tap();
+}
+
 static void tools_menu_draw(const boot_context_t *context,
                             menu_action_t armed_action,
                             tools_message_t message,
@@ -321,8 +501,8 @@ static void tools_menu_draw(const boot_context_t *context,
     console_set_cursor(1U, MENU_FIRST_ITEM_ROW);
 
     draw_menu_item("UPDATE STAGE 2",
-                   "    NOT IMPLEMENTED",
-                   DISPLAY_COLOR_GRAY,
+                   "    READY",
+                   DISPLAY_COLOR_GREEN,
                    armed_action == MENU_ACTION_UPDATE_STAGE2);
 
     draw_menu_item("STOCK UPDATER",
@@ -817,7 +997,9 @@ boot_target_id_t boot_menu_run(const boot_context_t *context,
         }
 
         if (action == MENU_ACTION_UPDATE_STAGE2) {
-            tools_message = TOOLS_MESSAGE_UPDATE_NOT_IMPLEMENTED;
+            stage2_update_show();
+            tools_message = TOOLS_MESSAGE_NONE;
+            armed_action = MENU_ACTION_NONE;
 
             tools_menu_draw(
                 context,

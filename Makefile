@@ -28,6 +28,7 @@ SOURCES_C := \
     drivers/display.c \
     drivers/spi0.c \
     drivers/spi_nor_ro.c \
+    drivers/spi_nor_stage2_rw.c \
     drivers/sdmmc0.c \
     drivers/gt911.c \
     storage/fat.c \
@@ -36,6 +37,7 @@ SOURCES_C := \
     loader/dposdbg.c \
     loader/dposlab.c \
     loader/original.c \
+    loader/stage2_update.c \
     loader/usb_linux.c \
     loader/start.c \
     loader/boot_targets.c \
