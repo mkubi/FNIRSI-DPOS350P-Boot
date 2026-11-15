@@ -76,8 +76,7 @@ static int validate_header(const stage2_header_t *header)
     if (header->entry_address < header->load_address ||
         header->entry_address >= payload_end)
         return -16;
-    if (header->flags != 0U)
-        return -17;
+    /* image_version is metadata; Stage 1 does not gate boot on it. */
 
     return 0;
 }
@@ -178,7 +177,7 @@ void stage1_stg2_report(uint32_t original_sp, uint32_t original_lr)
     result->load_address = header.load_address;
     result->entry_address = header.entry_address;
     result->expected_crc32 = header.payload_crc32;
-    result->flags = header.flags;
+    result->image_version = header.image_version;
 
     result->header_validate_result = validate_header(&header);
     if (result->header_validate_result != 0)

@@ -6,6 +6,8 @@
 #include "timer.h"
 #include "gt911.h"
 #include "stage2_update.h"
+#include "stage2_version.h"
+#include "watchdog.h"
 
 
 /*
@@ -27,11 +29,18 @@
 /* Shared BOOT/TOOLS menu geometry at console scale 2. */
 #define MENU_X_MIN             16U
 #define MENU_X_MAX             527U
-#define MENU_FIRST_ITEM_ROW    5U
-#define MENU_FIRST_ITEM_Y      64U
+#define MENU_FIRST_ITEM_ROW    4U
+#define MENU_FIRST_ITEM_Y      96U
 #define MENU_ITEM_STEP_Y       64U
 #define MENU_ITEM_TOUCH_HEIGHT 64U
-#define MENU_NAV_TOUCH_HEIGHT  32U
+
+#define UPDATE_CONFIRM_X_MIN      16U
+#define UPDATE_CONFIRM_X_MAX      527U
+#define UPDATE_CANCEL_ROW         8U
+#define UPDATE_INSTALL_ROW        12U
+#define UPDATE_CANCEL_Y           (16U + UPDATE_CANCEL_ROW * 20U)
+#define UPDATE_INSTALL_Y          (16U + UPDATE_INSTALL_ROW * 20U)
+#define UPDATE_CONFIRM_HEIGHT     64U
 
 typedef enum {
     MENU_PAGE_BOOT = 0,
@@ -213,6 +222,13 @@ static void boot_menu_draw(const boot_context_t *context,
 
     console_set_color(DISPLAY_COLOR_WHITE);
     console_putln("--------------------------------");
+
+    /* Overlay version without changing subsequent layout. */
+    console_set_cursor(48U, 0U);
+    console_puts("STG2 v");
+    put_hex32(STAGE2_IMAGE_VERSION);
+
+    /* Menu renderer already explicitly relocates itself. */
     console_set_cursor(1U, MENU_FIRST_ITEM_ROW);
 
     draw_target(
@@ -372,6 +388,93 @@ static void stage2_update_wait_for_tap(void)
 }
 
 
+static const char *stage2_update_policy_name(stage2_update_policy_t policy)
+{
+    switch (policy) {
+    case STAGE2_UPDATE_POLICY_ALREADY_CURRENT:
+        return "ALREADY UP TO DATE";
+    case STAGE2_UPDATE_POLICY_UPGRADE:
+        return "UPDATE AVAILABLE";
+    case STAGE2_UPDATE_POLICY_RECOVERY:
+        return "RECOVERY UPDATE";
+    case STAGE2_UPDATE_POLICY_DOWNGRADE_BLOCKED:
+        return "DOWNGRADE BLOCKED";
+    case STAGE2_UPDATE_POLICY_SAME_VERSION_MISMATCH:
+        return "SAME VERSION MISMATCH";
+    default:
+        return "UPDATE POLICY INVALID";
+    }
+}
+
+static int stage2_update_confirm_gui(uint32_t installed_version,
+                                     uint32_t update_version)
+{
+    gt911_touch_t touch;
+    int armed = 0; /* 0 none, 1 cancel, 2 install */
+    uint32_t next_poll;
+
+    console_clear();
+    console_set_color(DISPLAY_COLOR_CYAN);
+    console_putln("INSTALL STAGE 2 UPDATE?");
+    console_set_color(DISPLAY_COLOR_WHITE);
+    console_putln("--------------------------------");
+    console_puts("INSTALLED VERSION ");
+    put_hex32(installed_version);
+    console_putln("");
+    console_puts("UPDATE VERSION    ");
+    put_hex32(update_version);
+    console_putln("");
+    console_putln("");
+    console_set_color(DISPLAY_COLOR_RED);
+    console_putln("DO NOT REMOVE POWER DURING UPDATE");
+
+    /* Render and hit-test use exactly the same fixed geometry. */
+    console_set_cursor(1U, UPDATE_CANCEL_ROW);
+    console_set_color(DISPLAY_COLOR_YELLOW);
+    console_putln("CANCEL");
+
+    console_set_cursor(1U, UPDATE_INSTALL_ROW);
+    console_set_color(DISPLAY_COLOR_GREEN);
+    console_putln("INSTALL UPDATE");
+    console_present_swap_only();
+
+    next_poll = timer_get_ms();
+    for (;;) {
+        uint32_t now = timer_get_ms();
+        int rc;
+        int hit = 0;
+
+        if ((int32_t)(now - next_poll) < 0)
+            continue;
+        next_poll = now + TOUCH_POLL_INTERVAL_MS;
+        rc = gt911_poll(&touch);
+        if (rc < 0)
+            return 0;
+        if (rc == 0)
+            continue;
+
+        if (touch.x >= UPDATE_CONFIRM_X_MIN &&
+            touch.x <= UPDATE_CONFIRM_X_MAX) {
+            if (touch.y >= UPDATE_CANCEL_Y &&
+                touch.y < UPDATE_CANCEL_Y + UPDATE_CONFIRM_HEIGHT)
+                hit = 1;
+            else if (touch.y >= UPDATE_INSTALL_Y &&
+                     touch.y < UPDATE_INSTALL_Y + UPDATE_CONFIRM_HEIGHT)
+                hit = 2;
+        }
+
+        if (touch.state == GT911_TOUCH_PRESS) {
+            armed = hit;
+        } else if (touch.state == GT911_TOUCH_DRAG) {
+            armed = hit;
+        } else if (touch.state == GT911_TOUCH_RELEASE) {
+            if (armed != 0 && hit == armed)
+                return armed == 2;
+            armed = 0;
+        }
+    }
+}
+
 static void stage2_update_show(void)
 {
     static stage2_update_info_t info;
@@ -384,8 +487,6 @@ static void stage2_update_show(void)
     console_putln("STAGE 2 UPDATE");
     console_set_color(DISPLAY_COLOR_WHITE);
     console_putln("CHECK / WRITE / VERIFY");
-    console_set_color(DISPLAY_COLOR_GREEN);
-    console_putln("T2B SELF UPDATE PASS");
     console_set_color(DISPLAY_COLOR_WHITE);
     console_putln("--------------------------------");
     console_putln("ANALYZING...");
@@ -405,6 +506,9 @@ static void stage2_update_show(void)
     update_status_line("IMAGE HEADER     ", info.header_valid);
     update_status_line("IMAGE CRC32      ", info.input_valid);
     update_status_line("CURRENT SLOT     ", info.slot_valid);
+    update_hex_line("INSTALLED VERSION", info.installed_image_version);
+    update_hex_line("UPDATE VERSION   ", info.image_version);
+    update_hex_line("UPDATE POLICY    ", (uint32_t)info.policy);
     update_status_line("EXACT MATCH      ", info.exact_match);
     update_hex_line("DIFFERENCES      ", info.differences);
     update_hex_line("FIRST DIFFERENCE ", info.first_difference);
@@ -419,9 +523,18 @@ static void stage2_update_show(void)
         return;
     }
 
-    if (info.exact_match) {
-        console_set_color(DISPLAY_COLOR_GREEN);
-        console_putln("ALREADY UP TO DATE");
+    console_set_color(
+        info.policy == STAGE2_UPDATE_POLICY_UPGRADE ||
+        info.policy == STAGE2_UPDATE_POLICY_RECOVERY ||
+        info.policy == STAGE2_UPDATE_POLICY_ALREADY_CURRENT
+            ? DISPLAY_COLOR_GREEN
+            : DISPLAY_COLOR_RED);
+    console_putln(stage2_update_policy_name(info.policy));
+
+    if (info.policy == STAGE2_UPDATE_POLICY_ALREADY_CURRENT ||
+        info.policy == STAGE2_UPDATE_POLICY_DOWNGRADE_BLOCKED ||
+        info.policy == STAGE2_UPDATE_POLICY_SAME_VERSION_MISMATCH ||
+        info.policy == STAGE2_UPDATE_POLICY_INVALID) {
         console_set_color(DISPLAY_COLOR_YELLOW);
         console_putln("TAP TO RETURN");
         console_present_swap_only();
@@ -429,11 +542,27 @@ static void stage2_update_show(void)
         return;
     }
 
+    if (!stage2_update_confirm_gui(info.installed_image_version,
+                                   info.image_version)) {
+        console_clear();
+        console_set_color(DISPLAY_COLOR_CYAN);
+        console_putln("STAGE 2 UPDATE");
+        console_set_color(DISPLAY_COLOR_YELLOW);
+        console_putln("UPDATE CANCELLED");
+        console_set_color(DISPLAY_COLOR_WHITE);
+        console_putln("NO NOR CHANGES MADE");
+        console_set_color(DISPLAY_COLOR_YELLOW);
+        console_putln("TAP TO RETURN");
+        console_present_swap_only();
+        stage2_update_wait_for_tap();
+        return;
+    }
+
+    console_clear();
     console_set_color(DISPLAY_COLOR_RED);
-    console_putln("WRITE REQUIRES /STG2OK.BIN");
+    console_putln("UPDATING STAGE 2");
     console_putln("DO NOT REMOVE POWER");
     console_present_swap_only();
-    timer_delay_ms(2000U);
 
     write_status = stage2_update_write(&write_result);
 
@@ -442,7 +571,6 @@ static void stage2_update_show(void)
     console_putln("STAGE 2 UPDATE RESULT");
     console_set_color(DISPLAY_COLOR_WHITE);
     console_putln("--------------------------------");
-    update_status_line("CONFIRM TOKEN    ", write_result.confirm_valid);
     update_hex_line("BACKUP RC        ",
                     (uint32_t)write_result.backup_result);
     update_hex_line("WRITE INIT RC    ",
@@ -466,12 +594,13 @@ static void stage2_update_show(void)
 
     if (write_status == STAGE2_WRITE_OK) {
         console_set_color(DISPLAY_COLOR_YELLOW);
-        console_putln("REBOOT REQUIRED");
-    } else if (write_status == STAGE2_WRITE_NOT_ARMED) {
-        console_set_color(DISPLAY_COLOR_WHITE);
-        console_putln("NO NOR CHANGES MADE");
+        console_putln("REBOOTING...");
+        console_present_swap_only();
+        timer_delay_ms(1000U);
+        watchdog_reboot();
     }
 
+    /* Failures stay visible and never reboot automatically. */
     console_set_color(DISPLAY_COLOR_YELLOW);
     console_putln("TAP TO RETURN");
     console_present_swap_only();
@@ -498,6 +627,7 @@ static void tools_menu_draw(const boot_context_t *context,
 
     console_set_color(DISPLAY_COLOR_WHITE);
     console_putln("--------------------------------");
+    console_putln("");
     console_set_cursor(1U, MENU_FIRST_ITEM_ROW);
 
     draw_menu_item("UPDATE STAGE 2",
@@ -565,21 +695,6 @@ static int menu_item_index(uint16_t x, uint16_t y,
     return (int)index;
 }
 
-
-static int menu_nav_item_hit(uint16_t x, uint16_t y,
-                             unsigned index)
-{
-    uint32_t item_y = MENU_FIRST_ITEM_Y +
-                      index * MENU_ITEM_STEP_Y;
-
-    if (x < MENU_X_MIN || x > MENU_X_MAX)
-        return 0;
-
-    return y >= item_y &&
-           y < item_y + MENU_NAV_TOUCH_HEIGHT;
-}
-
-
 static menu_action_t boot_menu_hit_test(uint16_t x,
                                         uint16_t y)
 {
@@ -597,9 +712,6 @@ static menu_action_t boot_menu_hit_test(uint16_t x,
     if (index < 0)
         return MENU_ACTION_NONE;
 
-    if (index == 4 &&
-        !menu_nav_item_hit(x, y, 4U))
-        return MENU_ACTION_NONE;
 
     return actions[index];
 }
@@ -620,9 +732,6 @@ static menu_action_t tools_menu_hit_test(uint16_t x,
     if (index < 0)
         return MENU_ACTION_NONE;
 
-    if (index == 3 &&
-        !menu_nav_item_hit(x, y, 3U))
-        return MENU_ACTION_NONE;
 
     return actions[index];
 }

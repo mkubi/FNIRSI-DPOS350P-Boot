@@ -24,7 +24,7 @@ typedef struct {
     uint32_t load_address;
     uint32_t entry_address;
     uint32_t payload_crc32;
-    uint32_t flags;
+    uint32_t image_version;
 } stage2_header_t;
 
 typedef struct {
@@ -54,7 +54,7 @@ typedef struct {
     uint32_t entry_address;
     uint32_t expected_crc32;
     uint32_t calculated_crc32;
-    uint32_t flags;
+    uint32_t image_version;
 
     uint8_t payload_prefix[16];
     uint8_t payload_suffix[16];

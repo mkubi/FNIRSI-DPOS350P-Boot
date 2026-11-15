@@ -7,7 +7,7 @@
 #include "spi_nor_stage2_rw.h"
 
 #define STAGE2_MAGIC           0x32475453U
-#define STAGE2_VERSION         1U
+#define STAGE2_HEADER_VERSION  1U
 #define STAGE2_HEADER_SIZE     32U
 #define STAGE2_SLOT_SIZE       0x00010000U
 #define STAGE2_NOR_OFFSET      0x001DB000U
@@ -22,12 +22,6 @@
 
 static const char stage2_name[11] = {
     'S','T','A','G','E','2',' ',' ','B','I','N'
-};
-static const char confirm_name[11] = {
-    'S','T','G','2','O','K',' ',' ','B','I','N'
-};
-static const uint8_t confirm_token[16] = {
-    'S','T','G','2','W','R','I','T','E','-','O','K','-','v','1','\n'
 };
 
 static uint8_t file_buffer[FAT_SECTOR_SIZE] __attribute__((aligned(4)));
@@ -80,7 +74,7 @@ static int header_valid_values(uint32_t file_size, uint32_t magic,
 
     if (file_size != STAGE2_SLOT_SIZE)
         return 0;
-    if (magic != STAGE2_MAGIC || version != STAGE2_VERSION)
+    if (magic != STAGE2_MAGIC || version != STAGE2_HEADER_VERSION)
         return 0;
     if (header_size != STAGE2_HEADER_SIZE)
         return 0;
@@ -118,6 +112,7 @@ static int analyze_input(fat_volume_t *volume, fat_file_t *file,
     info->load_address = read_le32(&file_buffer[16]);
     info->entry_address = read_le32(&file_buffer[20]);
     info->expected_crc32 = read_le32(&file_buffer[24]);
+    info->image_version = read_le32(&file_buffer[28]);
     info->header_valid = header_valid_values(
         info->file_size, info->magic, info->version, info->header_size,
         info->payload_size, info->load_address, info->entry_address);
@@ -168,6 +163,7 @@ static int analyze_slot(fat_volume_t *volume, fat_file_t *file,
 
     payload_size = read_le32(&nor_buffer[12]);
     info->installed_expected_crc32 = read_le32(&nor_buffer[24]);
+    info->installed_image_version = read_le32(&nor_buffer[28]);
     if (!header_valid_values(
             STAGE2_SLOT_SIZE,
             read_le32(&nor_buffer[0]), read_le32(&nor_buffer[4]),
@@ -225,87 +221,6 @@ static int analyze_slot(fat_volume_t *volume, fat_file_t *file,
     return 0;
 }
 
-
-int stage2_tail_scan(stage2_tail_sector_t *sectors, unsigned capacity)
-{
-    unsigned sector;
-    uint32_t chunk;
-    uint32_t i;
-    uint32_t address;
-    int rc;
-
-    if (!sectors || capacity < STAGE2_TAIL_SECTOR_COUNT)
-        return -1;
-
-    rc = spi_nor_ro_init();
-    if (rc)
-        return rc;
-
-    for (sector = 0U; sector < STAGE2_TAIL_SECTOR_COUNT; ++sector) {
-        stage2_tail_sector_t *out = &sectors[sector];
-        address = STAGE2_TAIL_FIRST_ADDRESS + sector * 0x1000U;
-        out->address = address;
-        out->non_ff_count = 0U;
-        out->first_non_ff = 0xFFFFFFFFU;
-        out->first_word = 0xFFFFFFFFU;
-        out->read_result = 0;
-
-        for (chunk = 0U; chunk < 0x1000U; chunk += FAT_SECTOR_SIZE) {
-            rc = spi_nor_read_chunked(address + chunk,
-                                      nor_buffer, FAT_SECTOR_SIZE);
-            if (rc) {
-                out->read_result = rc;
-                return rc;
-            }
-            if (chunk == 0U)
-                out->first_word = read_le32(nor_buffer);
-            for (i = 0U; i < FAT_SECTOR_SIZE; ++i) {
-                if (nor_buffer[i] != 0xFFU) {
-                    if (out->first_non_ff == 0xFFFFFFFFU)
-                        out->first_non_ff = chunk + i;
-                    ++out->non_ff_count;
-                }
-            }
-        }
-    }
-    return 0;
-}
-
-int stage2_tail_verify_erased(uint32_t address,
-                              uint32_t *non_ff_count,
-                              uint32_t *first_non_ff)
-{
-    uint32_t chunk;
-    uint32_t i;
-    int rc;
-
-    if (!non_ff_count || !first_non_ff)
-        return -1;
-
-    *non_ff_count = 0U;
-    *first_non_ff = 0xFFFFFFFFU;
-
-    rc = spi_nor_ro_init();
-    if (rc)
-        return rc;
-
-    for (chunk = 0U; chunk < 0x1000U; chunk += FAT_SECTOR_SIZE) {
-        rc = spi_nor_read_chunked(address + chunk,
-                                  nor_buffer, FAT_SECTOR_SIZE);
-        if (rc)
-            return rc;
-        for (i = 0U; i < FAT_SECTOR_SIZE; ++i) {
-            if (nor_buffer[i] != 0xFFU) {
-                if (*first_non_ff == 0xFFFFFFFFU)
-                    *first_non_ff = chunk + i;
-                ++*non_ff_count;
-            }
-        }
-    }
-
-    return 0;
-}
-
 int stage2_update_analyze(stage2_update_info_t *info)
 {
     sdmmc0_info_t sd_info;
@@ -338,24 +253,24 @@ int stage2_update_analyze(stage2_update_info_t *info)
         return rc;
     rc = analyze_slot(&volume, &file, info);
     info->nor_result = rc;
-    return rc;
-}
-
-static int confirm_valid(fat_volume_t *volume, fat_file_t *file)
-{
-    uint32_t i;
-    int rc;
-
-    if (file->size != sizeof(confirm_token))
-        return 0;
-    rc = fat_read_file_sector(volume, file, 0U, file_buffer);
     if (rc)
-        return 0;
-    for (i = 0U; i < sizeof(confirm_token); ++i)
-        if (file_buffer[i] != confirm_token[i])
-            return 0;
-    return 1;
+        return rc;
+
+    if (!info->slot_valid) {
+        info->policy = STAGE2_UPDATE_POLICY_RECOVERY;
+    } else if (info->image_version > info->installed_image_version) {
+        info->policy = STAGE2_UPDATE_POLICY_UPGRADE;
+    } else if (info->image_version < info->installed_image_version) {
+        info->policy = STAGE2_UPDATE_POLICY_DOWNGRADE_BLOCKED;
+    } else if (info->exact_match) {
+        info->policy = STAGE2_UPDATE_POLICY_ALREADY_CURRENT;
+    } else {
+        info->policy = STAGE2_UPDATE_POLICY_SAME_VERSION_MISMATCH;
+    }
+    return 0;
 }
+
+
 
 static int backup_current_slot(void)
 {
@@ -485,7 +400,6 @@ stage2_write_status_t stage2_update_write(stage2_write_result_t *result)
     sdmmc0_info_t sd_info;
     fat_volume_t volume;
     fat_file_t file;
-    fat_file_t confirm_file;
     stage2_update_info_t info;
     int rc;
 
@@ -515,13 +429,15 @@ stage2_write_status_t stage2_update_write(stage2_write_result_t *result)
     if (rc || !info.input_valid)
         goto invalid;
 
-    rc = fat_find_root(&volume, confirm_name, &confirm_file);
-    result->confirm_found = rc == 0;
-    if (rc || !confirm_valid(&volume, &confirm_file)) {
-        result->status = STAGE2_WRITE_NOT_ARMED;
-        return result->status;
+    rc = analyze_slot(&volume, &file, &info);
+    if (rc)
+        goto invalid;
+    if (info.slot_valid) {
+        if (info.image_version < info.installed_image_version)
+            goto invalid;
+        if (info.image_version == info.installed_image_version)
+            goto invalid;
     }
-    result->confirm_valid = 1;
 
     rc = spi_nor_ro_init();
     if (rc)
